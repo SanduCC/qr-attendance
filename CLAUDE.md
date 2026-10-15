@@ -127,3 +127,5 @@ Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HAS
 - Don't weaken any anti-cheating rule without asking.
 - Write a Flyway migration for every schema change; never edit an applied migration.
 - Test the student flow on a narrow (375px) viewport.
+- Every change goes through a PR to `master` (protected: no direct pushes, 0 approvals, all checks green).
+  Branch names: `feature/…` (anything new, incl. CI/docs), `bugfix/…`, `hotfix/…` — see CONTRIBUTING.md.

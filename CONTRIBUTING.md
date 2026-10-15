@@ -9,8 +9,17 @@ branch from master → code + tests → push → open PR → checks green → sc
 
 ## Branches
 
-Name branches after the issue: `feat/12-apple-login`, `fix/27-csv-encoding`, `chore/…`. Link the issue in the PR
-(`Closes #12`).
+Every branch starts with one of three prefixes, so the kind of change is visible at a glance:
+
+| Prefix | Use it for | Example |
+|---|---|---|
+| `feature/` | anything new: app features, but also new CI jobs, docs, tooling | `feature/2-apple-login` |
+| `bugfix/` | fixing a bug through the normal PR flow | `bugfix/27-csv-encoding` |
+| `hotfix/` | an urgent fix for something already broken on `master` / in production | `hotfix/31-qr-token-expiry` |
+
+After the prefix: the issue number (if there is one) and a short lowercase slug (`a-z 0-9 . _ -`). Link the issue in
+the PR (`Closes #2`). Dependabot's own `dependabot/…` branches are the only exception. The `branch name` CI check
+fails any PR whose branch doesn't follow this.
 
 ## Local checks before pushing
 
@@ -24,6 +33,7 @@ Name branches after the issue: `feat/12-apple-login`, `fix/27-csv-encoding`, `ch
 |---|---|---|---|
 | `ci.yml` | build and test | `./mvnw verify` on Corretto 25: compile, unit tests, Testcontainers integration tests (Postgres 16 + Redis 7) | yes |
 | `ci.yml` | docker image build | the `Dockerfile` still builds | yes |
+| `ci.yml` | branch name | PR branch is `feature/…`, `bugfix/…` or `hotfix/…` (or `dependabot/…`) | yes |
 | `security.yml` | secret scan (gitleaks) | no secrets in any commit of the branch's history | yes |
 | `security.yml` | SAST (semgrep) | Semgrep CE rules for Java, GitHub Actions and Dockerfile; on PRs only findings the PR adds fail | yes |
 | `codeql.yml` | Analyze (java-kotlin / javascript-typescript / actions) | GitHub CodeQL `security-extended` queries; Java is built with Corretto 25. Alerts under *Security > Code scanning* | yes |
