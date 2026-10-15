@@ -20,7 +20,7 @@ import sys
 import time
 
 REQUIRED_CHECKS = {
-    "build and test", "docker image build",            # ci.yml
+    "branch name", "build and test", "docker image build",  # ci.yml
     "secret scan (gitleaks)", "SAST (semgrep)",        # security.yml
     "Analyze (java-kotlin)", "Analyze (javascript-typescript)", "Analyze (actions)",  # codeql.yml
 }
