@@ -1,0 +1,13 @@
+target/
+.idea/
+*.iml
+.vscode/
+.DS_Store
+.env
+*.p8
+application-local.yml
+
+# Local Maven + JDK cache used on the dev machine
+.tools/
+*.log
+HELP.md

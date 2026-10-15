@@ -1,0 +1,15 @@
+* text=auto
+
+# Shell scripts must keep LF or they break inside Linux containers / CI
+mvnw text eol=lf
+*.sh text eol=lf
+
+# Windows scripts
+*.cmd text eol=crlf
+
+# Binaries
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary
+*.woff2 binary
