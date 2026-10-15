@@ -4,7 +4,7 @@
 # The Maven wrapper (only-script) needs: sh, wget or curl, and unzip or tar.
 # Alpine's busybox already provides sh, wget (with HTTPS via ssl_client), unzip and tar,
 # so no extra packages are installed.
-FROM amazoncorretto:25-alpine AS build
+FROM amazoncorretto:27-alpine AS build
 WORKDIR /workspace
 
 # 1) Wrapper + POM first, so the dependency layer is cached until pom.xml changes.
@@ -21,7 +21,7 @@ RUN ./mvnw -B -DskipTests package \
     && cp target/qr-attendance-*.jar /workspace/app.jar
 
 # ---------- Runtime stage ----------
-FROM amazoncorretto:25-alpine
+FROM amazoncorretto:27-alpine
 WORKDIR /app
 
 RUN addgroup -S app && adduser -S -G app -h /app app
