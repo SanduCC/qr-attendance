@@ -1,0 +1,42 @@
+name: dependabot auto-merge
+
+# Turns on GitHub auto-merge for Dependabot's grouped Maven minor/patch PRs
+# (branches dependabot/maven/maven-minor-patch-*). This does NOT bypass anything: branch protection on master
+# still requires every check to be green and the branch to be up to date, GitHub merges (squash) only then.
+# Major updates, other ecosystems and PRs pushed to by anyone but Dependabot are left for a human.
+#
+# Note: merges done with GITHUB_TOKEN don't trigger new workflow runs, so CI/CodeQL don't rerun on master for
+# these merges (they already ran on the PR; the weekly scans still cover master).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  enable-auto-merge:
+    name: enable auto-merge (dependabot)
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]' &&
+      startsWith(github.head_ref, 'dependabot/maven/maven-minor-patch-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write       # merge
+      pull-requests: write  # enable auto-merge
+    steps:
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3.1.0
+
+      - name: Enable auto-merge (minor/patch only)
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATES: ${{ steps.meta.outputs.dependency-names }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          echo "Auto-merge for $UPDATE_TYPE: $UPDATES" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh pr merge --auto --squash "$PR_URL"
