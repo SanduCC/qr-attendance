@@ -32,6 +32,8 @@ import io.github.sanducc.attendance.support.IntegrationTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ContentDisposition;
@@ -204,7 +206,11 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(html).doesNotContain("(optional)");
-        assertThat(html).containsPattern("<input[^>]*name=\"code\"[^>]*required");
+        // Thymeleaf writes id/name/value after the static attributes, so match the tag regardless of order.
+        Matcher codeInput = Pattern.compile("<input[^>]*\\bname=\"code\"[^>]*>")
+                .matcher(html);
+        assertThat(codeInput.find()).as("code input rendered").isTrue();
+        assertThat(codeInput.group()).containsPattern("\\srequired[\\s>=/]");
     }
 
     @Test
