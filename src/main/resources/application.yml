@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: qr-attendance
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/attendance}
+    username: ${DATABASE_USERNAME:attendance}
+    password: ${DATABASE_PASSWORD:attendance}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid,profile,email
+
+server:
+  port: ${PORT:8080}
+  # Set to "framework" behind a TLS-terminating proxy (Cloud Run, Caddy, nginx). Leave "none" otherwise,
+  # or clients could spoof X-Forwarded-For to dodge the per-IP rate limit.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
+  servlet:
+    session:
+      timeout: 60m
+      cookie:
+        http-only: true
+        secure: ${COOKIE_SECURE:true}
+        same-site: lax
+  mime-mappings:
+    webmanifest: application/manifest+json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+attendance:
+  public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
+  display-zone: Europe/Bucharest
+  # Comma-separated; teachers can also be added as rows in the teacher table.
+  teacher-emails: ${TEACHER_EMAILS:}
+  security:
+    qr-hmac-secret: ${QR_HMAC_SECRET}
+    hash-pepper: ${HASH_PEPPER}
+    secure-cookies: ${COOKIE_SECURE:true}
+  session:
+    default-duration: 15m
+    max-duration: 3h
+    # Time a student has between scanning and finishing sign-in + check-in.
+    check-in-grace: 3m
+  qr:
+    window: 15s
+  rate-limit:
+    # A whole class often shares one NAT'd Wi-Fi IP, so the per-IP limit must cover a class.
+    per-ip-per-minute: 120
+    per-device-per-minute: 10
+  retention:
+    academic-year-end: "09-30"
+    grace-days: 30
+    cron: "0 30 3 * * *"
