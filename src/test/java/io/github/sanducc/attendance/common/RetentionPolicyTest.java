@@ -6,7 +6,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.MonthDay;
 import java.time.ZoneId;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class RetentionPolicyTest {
@@ -88,12 +87,11 @@ class RetentionPolicyTest {
     }
 
     /**
-     * BUG (RetentionPolicy.purgeCutoff): with a December 31 year end, the first candidate
-     * (Jan 1 next year) is always in the future and only one fallback year is tried, so in January,
-     * while 2025 is still inside its grace period, the cutoff is 2026-01-01 and all of 2025 is purged.
+     * Regression (#18): with a December 31 year end the first candidate (Jan 1 next year) is always in
+     * the future; trying only one fallback year made the cutoff 2026-01-01 in January, purging all of
+     * 2025 while it was still inside its grace period.
      */
     @Test
-    @Disabled("Known bug in RetentionPolicy.purgeCutoff for a 12-31 academic year end; see report")
     void calendarYearEndInsideTheGracePeriodKeepsLastYear() {
         Instant cutoff = RetentionPolicy.purgeCutoff(Instant.parse("2026-01-15T09:00:00Z"), BUCHAREST,
                 MonthDay.of(12, 31), GRACE);
@@ -102,9 +100,13 @@ class RetentionPolicyTest {
     }
 
     @Test
-    @Disabled("Known bug in RetentionPolicy.purgeCutoff for a 12-31 academic year end; see report")
     void neverPurgesDataStillInsideItsGracePeriodForDecemberYearEnd() {
         assertInvariantForEveryDay(MonthDay.of(12, 31), GRACE);
+    }
+
+    @Test
+    void neverPurgesDataStillInsideAGracePeriodLongerThanAYear() {
+        assertInvariantForEveryDay(SEPT_30, 400);
     }
 
     /**
