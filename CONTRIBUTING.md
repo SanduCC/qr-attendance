@@ -1,0 +1,59 @@
+# Contributing
+
+One change = one branch = one pull request. Nobody pushes to `master` directly: `master` is protected and a PR can
+only be merged when every required check is green and the branch is up to date with `master`.
+
+```
+branch from master → code + tests → push → open PR → checks green → scripts/merge_pr.py (squash into master)
+```
+
+## Branches
+
+Name branches after the issue: `feat/12-apple-login`, `fix/27-csv-encoding`, `chore/…`. Link the issue in the PR
+(`Closes #12`).
+
+## Local checks before pushing
+
+```bash
+./mvnw verify      # unit + Testcontainers tests (the latter are skipped without Docker; CI always runs them)
+```
+
+## Checks that run on every PR
+
+| Workflow | Job | What it enforces | Required |
+|---|---|---|---|
+| `ci.yml` | build and test | `./mvnw verify` on Corretto 25: compile, unit tests, Testcontainers integration tests (Postgres 16 + Redis 7) | yes |
+| `ci.yml` | docker image build | the `Dockerfile` still builds | yes |
+| `security.yml` | secret scan (gitleaks) | no secrets in any commit of the branch's history | yes |
+| `security.yml` | SAST (semgrep) | Semgrep CE rules for Java, GitHub Actions and Dockerfile; on PRs only findings the PR adds fail | yes |
+| `codeql.yml` | Analyze (java-kotlin / javascript-typescript / actions) | GitHub CodeQL `security-extended` queries; Java is built with Corretto 25. Alerts under *Security > Code scanning* | yes |
+
+`security.yml` also runs a full scan every Monday, CodeQL every Sunday. Actions are pinned to commit SHAs with a
+`# vX.Y.Z` comment.
+
+## Merging
+
+```bash
+python scripts/merge_pr.py <pr-number> --dry-run   # report only
+python scripts/merge_pr.py <pr-number>             # refresh branch if behind, wait for checks, squash-merge, delete branch
+```
+
+The script refuses if a required check isn't green, the PR conflicts, is a draft, or targets anything but `master`.
+When the branch is behind `master` it updates it, waits for the checks to rerun on the new commit and only then merges.
+If you add or rename a CI job, update `REQUIRED_CHECKS` in the script **and** the branch protection rule.
+
+## Dependabot
+
+Runs every Monday 05:00 (Europe/Bucharest) and opens PRs that go through the same checks:
+- **maven**: minor + patch updates grouped in one PR, majors one per PR. Spring Boot majors are ignored (the 4.x
+  upgrade is done by hand, issue #1).
+- **github-actions**: all actions in one PR (updates the SHA and the version comment).
+- **docker / docker-compose**: base images; Postgres/Redis majors are ignored.
+
+Dependabot **alerts** and **security updates** are enabled on the repo, so vulnerable dependencies get fix PRs as
+soon as an advisory is published, not just on Mondays.
+
+## Rules that always apply
+
+See [CLAUDE.md](CLAUDE.md): don't weaken an anti-cheating rule without agreement, every schema change is a new
+Flyway migration, every anti-cheat rule has an integration test, test student pages at 375px.

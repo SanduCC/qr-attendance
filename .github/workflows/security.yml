@@ -1,0 +1,75 @@
+name: security
+
+# Free, open-source scanners (same setup as OncoLens):
+#   gitleaks (MIT)          secrets in any commit of the history                      required for merge
+#   Semgrep CE (LGPL-2.1)   SAST: Java, GitHub Actions, Dockerfile rules              required for merge (PRs: new findings only)
+# Dependency CVEs are covered by Dependabot alerts + security updates (enabled on the repo).
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "0 4 * * 1"  # Mondays 04:00 UTC: full scans, catches newly published rules
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # adds -o pipefail
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # sha256 of gitleaks_8.30.1_linux_x64.tar.gz, from the release's checksums.txt
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # whole history: a secret removed in a later commit is still leaked
+          persist-credentials: false
+      - name: Install gitleaks (checksum-verified release binary)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan all commits
+        run: |
+          "$RUNNER_TEMP/gitleaks" git . --redact --no-banner --verbose --exit-code 1
+
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # pull requests compare against the base commit
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install "semgrep>=1.179"
+      - name: Semgrep (pull request; fails only on findings the PR introduces)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >
+          semgrep scan --metrics off --error --baseline-commit "$BASE_SHA"
+          --config p/java --config p/github-actions --config p/dockerfile
+      - name: Semgrep (full scan)
+        if: github.event_name != 'pull_request'
+        run: >
+          semgrep scan --metrics off --error
+          --config p/java --config p/github-actions --config p/dockerfile

@@ -1,0 +1,69 @@
+# Dependabot version updates (see CONTRIBUTING.md). Its PRs go through the same CI + security checks and the
+# scripts/merge_pr.py gate as any other PR. Dependabot alerts and security updates are also enabled on the repo.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 3
+    labels: [dependencies, java]
+    commit-message:
+      prefix: "deps"
+    ignore:
+      # The Spring Boot 4.x upgrade is planned and will be done by hand (issue #1).
+      - dependency-name: "org.springframework.boot:*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Minor and patch releases together in one PR. Major releases get their own PRs.
+      maven-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 2
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: "ci"
+    groups:
+      # Actions are pinned to commit SHAs with a version comment; Dependabot updates both.
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 2
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "docker"
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 2
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "docker"
+    ignore:
+      # Postgres 16 / Redis 7 are the supported majors (CLAUDE.md); bump them on purpose, not via Dependabot.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
