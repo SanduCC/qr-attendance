@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/layout :: head('QR Attendance')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+<main class="container">
+    <h1>QR Attendance</h1>
+    <div class="card">
+        <p class="lead">Scan the QR code shown in class with your phone camera.</p>
+        <p class="muted">The link opens this site. Sign in, confirm your name, and you're checked in. No app to install.</p>
+    </div>
+
+    <p sec:authorize="hasRole('TEACHER')">
+        <a class="btn btn-primary btn-block" th:href="@{/teacher/courses}">My courses</a>
+    </p>
+    <p sec:authorize="isAnonymous()">
+        <a class="btn btn-block" th:href="@{/login}">Teacher sign-in</a>
+    </p>
+
+    <p class="small muted"><a th:href="@{/privacy}">Privacy notice</a></p>
+</main>
+</body>
+</html>

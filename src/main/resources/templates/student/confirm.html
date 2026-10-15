@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${'Check in: ' + courseName})}"></head>
+<body>
+<main class="container">
+    <p class="eyebrow">Check in</p>
+    <h1 th:text="${courseName}">Course name</h1>
+
+    <form class="card" method="post" th:action="@{/a/{id}/check-in(id=${sessionId})}" th:object="${nameForm}">
+        <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+        </div>
+
+        <th:block th:unless="${registered}">
+            <h2>Confirm your name</h2>
+            <p class="muted">This is how your teacher will see you. You can only set it once.</p>
+
+            <div class="field">
+                <label for="firstName">First name</label>
+                <input type="text" th:field="*{firstName}" th:errorclass="invalid"
+                       autocomplete="given-name" maxlength="100" required>
+                <p class="field-error" th:if="${#fields.hasErrors('firstName')}" th:errors="*{firstName}">Error</p>
+            </div>
+            <div class="field">
+                <label for="lastName">Last name</label>
+                <input type="text" th:field="*{lastName}" th:errorclass="invalid"
+                       autocomplete="family-name" maxlength="100" required>
+                <p class="field-error" th:if="${#fields.hasErrors('lastName')}" th:errors="*{lastName}">Error</p>
+            </div>
+        </th:block>
+
+        <th:block th:if="${registered}">
+            <p class="muted small">Checking in as</p>
+            <p class="name-display" th:text="${nameForm.firstName + ' ' + nameForm.lastName}">Ana Popescu</p>
+        </th:block>
+
+        <p class="small muted" th:if="${email != null}">Signed in as <strong th:text="${email}">ana@example.com</strong></p>
+
+        <button type="submit" class="btn btn-primary btn-block btn-lg">Check in</button>
+    </form>
+
+    <form th:if="${registered}" class="center" method="post" th:action="@{/logout}">
+        <span class="small muted">Not you?</span>
+        <button type="submit" class="linkbtn">Sign out</button>
+    </form>
+</main>
+</body>
+</html>

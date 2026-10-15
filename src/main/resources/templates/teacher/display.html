@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/layout :: headTags(${course.name + ' · Attendance'})}"></th:block>
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
+    <script th:src="@{/js/display.js}" defer></script>
+</head>
+<body class="display" th:data-session-id="${sessionId}" th:data-open="${open}">
+<div class="display-grid">
+    <section class="qr-panel" aria-label="QR code">
+        <h1 class="display-title" th:text="${course.name}">Algorithms</h1>
+
+        <div id="qr-live" th:hidden="${!open}">
+            <p class="display-sub">Scan with your phone camera</p>
+            <div id="qr" class="qr-box" aria-live="off">
+                <p class="qr-loading">Loading QR code…</p>
+            </div>
+            <p id="qr-url" class="qr-url"></p>
+            <p class="display-sub">Closes at <strong id="closes-at" th:text="${closesAt}">09:15</strong></p>
+        </div>
+
+        <div id="qr-closed" class="closed-state" th:hidden="${open}">
+            <p class="closed-title">Session closed</p>
+            <p class="muted">Check-in is no longer possible.</p>
+        </div>
+    </section>
+
+    <section class="side-panel" aria-label="Attendance">
+        <div id="signed-out" class="banner warn" role="alert" hidden>Signed out — reload the page.</div>
+        <div id="conn" class="conn" role="status" hidden>Reconnecting…</div>
+
+        <p class="counter" aria-live="polite">
+            <span id="count" class="count">0</span> checked in<span id="expected-wrap"
+                th:hidden="${expectedHeadcount == null}"> / expected <span id="expected"
+                th:text="${expectedHeadcount}">25</span></span>
+        </p>
+
+        <div id="over-warning" class="banner warn banner-lg" role="alert" hidden>
+            More check-ins than expected — do a quick headcount
+        </div>
+
+        <div class="controls">
+            <form id="close-form" th:if="${open}" method="post"
+                  th:action="@{/sessions/{id}/close(id=${sessionId})}">
+                <button type="submit" class="btn btn-danger">Close session</button>
+            </form>
+            <a class="btn" th:href="@{/sessions/{id}/export.csv(id=${sessionId})}">Export CSV</a>
+            <a class="btn" th:href="@{/teacher/courses/{id}(id=${course.id})}">Back to course</a>
+        </div>
+
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                <tr>
+                    <th scope="col" class="num">#</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Time</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+                </thead>
+                <tbody id="records">
+                <tr class="empty-row">
+                    <td colspan="5" class="muted">No check-ins yet.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+</body>
+</html>

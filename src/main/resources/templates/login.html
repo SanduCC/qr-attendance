@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Sign in · QR Attendance')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+<main class="container">
+    <h1>Sign in</h1>
+
+    <div class="banner warn" role="alert" th:if="${param.error}">Sign-in failed. Please try again.</div>
+
+    <p>
+        <a class="btn btn-google btn-block" th:href="@{/oauth2/authorization/google}">Continue with Google</a>
+    </p>
+
+    <p class="small muted">By signing in you accept our <a th:href="@{/privacy}">privacy notice</a>.</p>
+</main>
+</body>
+</html>

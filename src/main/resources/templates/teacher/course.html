@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${course.name + ' · QR Attendance'})}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+<main class="container wide">
+    <p class="small"><a th:href="@{/teacher/courses}">&larr; My courses</a></p>
+    <h1>
+        <span th:text="${course.name}">Algorithms</span>
+        <span class="badge" th:if="${course.code != null and !#strings.isEmpty(course.code)}" th:text="${course.code}">CS101</span>
+    </h1>
+
+    <form class="card" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${course.id})}"
+          th:object="${openForm}">
+        <h2>Start session</h2>
+        <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label for="durationMinutes">Duration (minutes)</label>
+                <input type="number" inputmode="numeric" th:field="*{durationMinutes}" th:errorclass="invalid"
+                       min="1" th:max="${maxDurationMinutes}" required>
+                <p class="field-error" th:if="${#fields.hasErrors('durationMinutes')}" th:errors="*{durationMinutes}">Error</p>
+            </div>
+            <div class="field">
+                <label for="expectedHeadcount">Expected students <span class="muted">(optional)</span></label>
+                <input type="number" inputmode="numeric" th:field="*{expectedHeadcount}" th:errorclass="invalid"
+                       min="1">
+                <p class="field-error" th:if="${#fields.hasErrors('expectedHeadcount')}" th:errors="*{expectedHeadcount}">Error</p>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Start session</button>
+    </form>
+
+    <h2>Sessions</h2>
+    <p class="muted empty" th:if="${#lists.isEmpty(sessions)}">No sessions yet.</p>
+    <div class="table-wrap" th:unless="${#lists.isEmpty(sessions)}">
+        <table class="table">
+            <thead>
+            <tr>
+                <th scope="col">Opened</th>
+                <th scope="col">Closes</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="num">Checked in</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="s : ${sessions}">
+                <td th:text="${s.openedAt}">16.10.2026 09:00</td>
+                <td th:text="${s.closesAt}">09:15</td>
+                <td>
+                    <span class="badge badge-ok" th:if="${s.open}">Open</span>
+                    <span class="badge" th:unless="${s.open}">Closed</span>
+                </td>
+                <td class="num" th:text="${s.checkedIn}">23</td>
+                <td class="actions">
+                    <a th:href="@{/sessions/{id}/display(id=${s.id})}">Display</a>
+                    <a th:href="@{/sessions/{id}/export.csv(id=${s.id})}">CSV</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

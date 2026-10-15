@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${title})}"></head>
+<body>
+<main class="container">
+    <div class="card">
+        <h1 th:text="${title}">QR code expired</h1>
+        <p class="lead" th:text="${message}">This QR code is no longer valid.</p>
+        <p class="muted" th:if="${hint != null}" th:text="${hint}">Scan the code on the screen again.</p>
+    </div>
+    <p><a th:href="@{/}">Go to home page</a></p>
+</main>
+</body>
+</html>

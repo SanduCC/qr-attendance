@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Privacy · QR Attendance')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+<main class="container prose">
+    <h1>Privacy notice</h1>
+
+    <h2>What we store</h2>
+    <ul>
+        <li>Your first and last name and your email address.</li>
+        <li>Your Google account ID (a number that identifies your account, not your password).</li>
+        <li>The time you checked in to each class session.</li>
+    </ul>
+    <p>Your IP address and a device identifier are stored only as salted one-way hashes. They can't be turned
+        back into the original values. We use them only to stop check-in fraud, such as one phone checking in
+        several people.</p>
+
+    <h2>Who sees it</h2>
+    <p>Only the teacher of the course sees its attendance list. We don't sell or share your data, and we don't
+        use it for advertising.</p>
+
+    <h2>How long we keep it</h2>
+    <p>Until the end of the academic year. After that it is deleted automatically.</p>
+
+    <h2>Your rights</h2>
+    <p>Under the GDPR you can ask to see, correct, or delete your data. Contact your teacher or your
+        institution to do this.</p>
+
+    <p><a th:href="@{/}">Back to home</a></p>
+</main>
+</body>
+</html>

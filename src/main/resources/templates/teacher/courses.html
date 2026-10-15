@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('My courses · QR Attendance')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header}"></header>
+<main class="container">
+    <h1>My courses</h1>
+
+    <ul class="list" th:unless="${#lists.isEmpty(courses)}">
+        <li th:each="c : ${courses}">
+            <a class="list-link" th:href="@{/teacher/courses/{id}(id=${c.id})}">
+                <span class="list-title" th:text="${c.name}">Algorithms</span>
+                <span class="badge" th:if="${c.code != null and !#strings.isEmpty(c.code)}" th:text="${c.code}">CS101</span>
+            </a>
+        </li>
+    </ul>
+    <p class="muted empty" th:if="${#lists.isEmpty(courses)}">You don't have any courses yet. Create one below.</p>
+
+    <form class="card" method="post" th:action="@{/teacher/courses}" th:object="${courseForm}">
+        <h2>New course</h2>
+        <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+        </div>
+        <div class="field">
+            <label for="name">Name</label>
+            <input type="text" th:field="*{name}" th:errorclass="invalid" maxlength="200" required>
+            <p class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">Error</p>
+        </div>
+        <div class="field">
+            <label for="code">Code <span class="muted">(optional)</span></label>
+            <input type="text" th:field="*{code}" th:errorclass="invalid" maxlength="50">
+            <p class="field-error" th:if="${#fields.hasErrors('code')}" th:errors="*{code}">Error</p>
+        </div>
+        <button type="submit" class="btn btn-primary">Create course</button>
+    </form>
+</main>
+</body>
+</html>

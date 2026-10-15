@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<!--/* Shared fragments. Pages use either:
+       <head th:replace="~{fragments/layout :: head('Title')}"></head>
+     or, when they need extra <head> tags:
+       <head><th:block th:replace="~{fragments/layout :: headTags('Title')}"></th:block> ...extra... </head> */-->
+<head th:fragment="head(title)">
+    <th:block th:replace="~{fragments/layout :: headTags(${title})}"></th:block>
+</head>
+<body>
+
+<th:block th:fragment="headTags(title)">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title}">QR Attendance</title>
+    <meta name="theme-color" content="#1d4ed8">
+    <link rel="manifest" th:href="@{/manifest.webmanifest}">
+    <link rel="icon" type="image/png" sizes="192x192" th:href="@{/icons/icon-192.png}">
+    <link rel="apple-touch-icon" th:href="@{/icons/icon-192.png}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script th:src="@{/js/sw-register.js}" defer></script>
+</th:block>
+
+<header class="topbar" th:fragment="header">
+    <a class="brand" th:href="@{/}">QR Attendance</a>
+    <nav class="topnav">
+        <a sec:authorize="hasRole('TEACHER')" th:href="@{/teacher/courses}">My courses</a>
+        <form sec:authorize="isAuthenticated()" class="inline" method="post" th:action="@{/logout}">
+            <button type="submit" class="linkbtn">Sign out</button>
+        </form>
+    </nav>
+</header>
+
+</body>
+</html>
