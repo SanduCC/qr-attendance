@@ -15,7 +15,8 @@ class CsvExporterTest {
 
     private static final ZoneId BUCHAREST = ZoneId.of("Europe/Bucharest");
     private static final String BOM = "﻿";
-    private static final String HEADER = "last_name,first_name,email,checked_in_at";
+    private static final String HEADER = "Nr.;Last name;First name;Email;Check-in time";
+    private static final Instant OPENED = Instant.parse("2026-10-16T06:00:00Z");
 
     @Test
     void startsWithBomAndHeaderEvenWhenEmpty() throws Exception {
@@ -25,7 +26,7 @@ class CsvExporterTest {
     }
 
     @Test
-    void writesOneCrLfTerminatedRowPerRecordInLastFirstOrder() throws Exception {
+    void writesSemicolonSeparatedCrLfRowsSortedAndNumbered() throws Exception {
         String csv = export(List.of(
                 new RecordView(1L, "Ștefan", "Țărănescu", "stefan@student.example.ro",
                         Instant.parse("2026-10-16T06:02:03Z")),
@@ -33,8 +34,31 @@ class CsvExporterTest {
                         Instant.parse("2026-10-16T06:03:00Z"))));
 
         assertThat(csv).isEqualTo(BOM + HEADER + "\r\n"
-                + "Țărănescu,Ștefan,stefan@student.example.ro,2026-10-16 09:02:03\r\n"
-                + "Popescu,Ioana-Maria,ioana@student.example.ro,2026-10-16 09:03:00\r\n");
+                + "1;Popescu;Ioana-Maria;ioana@student.example.ro;2026-10-16 09:03:00\r\n"
+                + "2;Țărănescu;Ștefan;stefan@student.example.ro;2026-10-16 09:02:03\r\n");
+    }
+
+    @Test
+    void sortsByRomanianAlphabetThenFirstNameThenCheckInTime() throws Exception {
+        String csv = export(List.of(
+                record("Ana", "Țepeș", "06:00:01"),
+                record("Ion", "Tudor", "06:00:02"),
+                record("Ana", "Ștefan", "06:00:03"),
+                record("Ana", "Șerban", "06:00:04"),
+                record("Ana", "Stan", "06:00:05"),
+                record("Mihai", "Stan", "06:00:06"),
+                record("Bogdan", "Stan", "06:00:07"),
+                record("Bogdan", "Stan", "06:00:00")));
+
+        assertThat(csv.lines().skip(1).toList()).containsExactly(
+                "1;Stan;Ana;;2026-10-16 09:00:05",
+                "2;Stan;Bogdan;;2026-10-16 09:00:00",
+                "3;Stan;Bogdan;;2026-10-16 09:00:07",
+                "4;Stan;Mihai;;2026-10-16 09:00:06",
+                "5;Șerban;Ana;;2026-10-16 09:00:04",
+                "6;Ștefan;Ana;;2026-10-16 09:00:03",
+                "7;Tudor;Ion;;2026-10-16 09:00:02",
+                "8;Țepeș;Ana;;2026-10-16 09:00:01");
     }
 
     @Test
@@ -44,20 +68,14 @@ class CsvExporterTest {
                 new RecordView(1L, "Ana", "Pop", null, Instant.parse("2026-07-01T21:30:00Z")),
                 new RecordView(2L, "Ana", "Pop", null, Instant.parse("2026-01-15T07:00:00Z"))));
 
-        assertThat(csv).contains("Pop,Ana,,2026-07-02 00:30:00\r\n", "Pop,Ana,,2026-01-15 09:00:00\r\n");
-    }
-
-    @Test
-    void nullEmailIsAnEmptyCell() throws Exception {
-        String csv = export(List.of(new RecordView(1L, "Ana", "Pop", null, Instant.parse("2026-10-16T06:00:00Z"))));
-
-        assertThat(csv).endsWith("Pop,Ana,,2026-10-16 09:00:00\r\n");
+        assertThat(csv).contains("1;Pop;Ana;;2026-01-15 09:00:00\r\n", "2;Pop;Ana;;2026-07-02 00:30:00\r\n");
     }
 
     @ParameterizedTest
     @CsvSource(delimiter = '|', quoteCharacter = '`', value = {
             "Popescu                | Popescu",
-            "Pop, Ana               | `\"Pop, Ana\"`",
+            "Pop; Ana               | `\"Pop; Ana\"`",
+            "Pop, Ana               | `Pop, Ana`",
             "O\"Neil                | `\"O\"\"Neil\"`",
             "O'Neil                 | O'Neil",
     })
@@ -105,12 +123,18 @@ class CsvExporterTest {
         String csv = export(List.of(new RecordView(1L, "=cmd|' /C calc'!A0", "@evil", "+x@example.ro",
                 Instant.parse("2026-10-16T06:00:00Z"))));
 
-        assertThat(csv).endsWith("\"'@evil\",\"'=cmd|' /C calc'!A0\",\"'+x@example.ro\",2026-10-16 09:00:00\r\n");
+        assertThat(csv).endsWith("1;\"'@evil\";\"'=cmd|' /C calc'!A0\";\"'+x@example.ro\";2026-10-16 09:00:00\r\n");
+    }
+
+    private static RecordView record(String firstName, String lastName, String utcTime) {
+        return new RecordView(null, firstName, lastName, null, Instant.parse("2026-10-16T" + utcTime + "Z"));
     }
 
     private static String export(List<RecordView> records) throws Exception {
+        AttendanceSheet sheet = AttendanceSheet.of("Algoritmi", "CS101", OPENED, OPENED.plusSeconds(900), null,
+                records, BUCHAREST);
         StringWriter out = new StringWriter();
-        CsvExporter.write(out, records, BUCHAREST);
+        CsvExporter.write(out, sheet);
         return out.toString();
     }
 }

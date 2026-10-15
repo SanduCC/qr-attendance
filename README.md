@@ -11,7 +11,7 @@ See [CLAUDE.md](CLAUDE.md) for the full spec, anti-cheating rules and convention
 
 ## Features
 
-- **Teachers** sign in with Google (allowlist), create courses, open a timed session, and project a display page with a rotating QR code, a live "checked in / expected" counter and a live attendance table. They can remove suspicious entries, close the session and export CSV.
+- **Teachers** sign in with Google (allowlist), create courses, open a timed session, and project a display page with a rotating QR code, a live "checked in / expected" counter and a live attendance table. They can remove suspicious entries, close the session and export the attendance as an Excel workbook (.xlsx) or a semicolon-separated CSV, sorted by name.
 - **Students** scan the QR with the phone camera, sign in with Google, confirm their name (first time only) and are checked in. No app install.
 
 ### Anti-cheat (summary)

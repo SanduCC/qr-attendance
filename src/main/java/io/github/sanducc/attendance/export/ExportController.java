@@ -1,21 +1,20 @@
 package io.github.sanducc.attendance.export;
 
 import io.github.sanducc.attendance.checkin.AttendanceRecordService;
-import io.github.sanducc.attendance.checkin.RecordView;
 import io.github.sanducc.attendance.common.DisplayTime;
 import io.github.sanducc.attendance.course.TeacherService;
 import io.github.sanducc.attendance.session.SessionService;
 import io.github.sanducc.attendance.session.SessionService.OwnedSession;
-import jakarta.servlet.http.HttpServletResponse;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,20 +36,36 @@ public class ExportController {
         this.displayTime = displayTime;
     }
 
+    @GetMapping("/sessions/{sessionId}/export.xlsx")
+    public ResponseEntity<byte[]> exportXlsx(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication)
+            throws IOException {
+        AttendanceSheet sheet = sheet(sessionId, authentication);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        XlsxExporter.write(out, sheet);
+        return attachment(out.toByteArray(), XlsxExporter.CONTENT_TYPE, sheet.filename("xlsx"));
+    }
+
     @GetMapping("/sessions/{sessionId}/export.csv")
-    public void export(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication,
-                       HttpServletResponse response) throws IOException {
+    public ResponseEntity<byte[]> exportCsv(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication)
+            throws IOException {
+        AttendanceSheet sheet = sheet(sessionId, authentication);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+        CsvExporter.write(writer, sheet);
+        return attachment(out.toByteArray(), CsvExporter.CONTENT_TYPE, sheet.filename("csv"));
+    }
+
+    private AttendanceSheet sheet(UUID sessionId, OAuth2AuthenticationToken authentication) {
         long teacherId = teachers.requireTeacherId(authentication);
         OwnedSession owned = sessions.getOwnedSession(teacherId, sessionId);
-        List<RecordView> rows = records.listRecords(teacherId, sessionId);
+        return AttendanceSheet.of(owned, records.listRecords(teacherId, sessionId), displayTime.zone());
+    }
 
-        String date = DateTimeFormatter.ISO_LOCAL_DATE.withZone(displayTime.zone())
-                .format(owned.session().getOpenedAt());
-        String filename = owned.course().getCode().replaceAll("[^A-Za-z0-9_-]", "_") + "_" + date + ".csv";
-        response.setContentType("text/csv; charset=UTF-8");
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
-                ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build().toString());
-        Writer writer = new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8);
-        CsvExporter.write(writer, rows, displayTime.zone());
+    private static ResponseEntity<byte[]> attachment(byte[] body, String contentType, String filename) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build().toString())
+                .body(body);
     }
 }
