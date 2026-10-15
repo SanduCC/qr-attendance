@@ -69,7 +69,9 @@ protection rule (Settings > Branches > master), or PRs will wait forever for a c
 
 Runs every Monday 05:00 (Europe/Bucharest) and opens PRs that go through the same checks:
 - **maven**: minor + patch updates grouped in one PR, majors one per PR. Spring Boot majors are ignored (the 4.x
-  upgrade is done by hand, issue #1).
+  upgrade is done by hand, issue #1). The grouped minor/patch PR (`dependabot/maven/maven-minor-patch-*`) **merges
+  itself**: `dependabot-auto-merge.yml` turns on auto-merge, and GitHub squash-merges once every required check is
+  green. If it sits "behind master", comment `@dependabot rebase` on it.
 - **github-actions**: all actions in one PR (updates the SHA and the version comment).
 - **docker / docker-compose**: base images; Postgres/Redis majors are ignored.
 
