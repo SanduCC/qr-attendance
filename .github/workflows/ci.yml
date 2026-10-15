@@ -15,6 +15,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  branch-name:
+    name: branch name
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Branch is feature/, bugfix/ or hotfix/ (CONTRIBUTING.md)
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ "$BRANCH" =~ ^(feature|bugfix|hotfix)/[a-z0-9][a-z0-9._-]*$ || "$BRANCH" == dependabot/* ]]; then
+            echo "Branch name OK: $BRANCH"
+          else
+            echo "::error::Branch '$BRANCH' must be feature/<slug>, bugfix/<slug> or hotfix/<slug> (lowercase a-z 0-9 . _ -)."
+            exit 1
+          fi
+
   build:
     name: build and test
     runs-on: ubuntu-latest

@@ -20,10 +20,13 @@ public final class RetentionPolicy {
      */
     public static Instant purgeCutoff(Instant now, ZoneId zone, MonthDay academicYearEnd, int graceDays) {
         LocalDate today = LocalDate.ofInstant(now, zone);
-        LocalDate yearStart = academicYearEnd.atYear(today.getYear()).plusDays(1);
-        if (yearStart.plusDays(graceDays).isAfter(today)) {
-            yearStart = academicYearEnd.atYear(today.getYear() - 1).plusDays(1);
-        }
+        // Step back a year at a time: with a year end late in the calendar year (or a long grace
+        // period) a single step back can still land inside the grace period.
+        int year = today.getYear();
+        LocalDate yearStart;
+        do {
+            yearStart = academicYearEnd.atYear(year--).plusDays(1);
+        } while (yearStart.plusDays(graceDays).isAfter(today));
         return yearStart.atStartOfDay(zone).toInstant();
     }
 }
