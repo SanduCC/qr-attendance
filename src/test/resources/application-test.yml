@@ -1,0 +1,23 @@
+# Test profile. Postgres and Redis come from Testcontainers via @ServiceConnection,
+# so no datasource / redis URLs are set here. All secrets below are dummies.
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: test-google-client-id
+            client-secret: test-google-client-secret
+
+attendance:
+  public-base-url: http://localhost
+  teacher-emails: ""
+  security:
+    qr-hmac-secret: test-qr-hmac-secret-0123456789abcdef-0123456789
+    hash-pepper: test-hash-pepper-0123456789abcdef-0123456789abc
+    secure-cookies: true
+
+logging:
+  level:
+    org.testcontainers: INFO
+    io.github.sanducc.attendance: DEBUG
