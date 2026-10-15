@@ -32,6 +32,8 @@ import io.github.sanducc.attendance.support.IntegrationTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ContentDisposition;
@@ -188,6 +190,27 @@ class TeacherAccessTest extends IntegrationTestSupport {
 
         assertThat(sessionRepository.count()).isZero();
         assertThat(courseService.listCourses(teacherId)).hasSize(1);
+    }
+
+    /** Regression (#19): the code is required, so the form must not present it as optional. */
+    @Test
+    void courseCodeIsRequiredAndTheFormSaysSo() throws Exception {
+        createTeacher(PROF_A);
+
+        mvc.perform(post("/teacher/courses").with(csrf()).with(profA()).param("name", "Algoritmi").param("code", " "))
+                .andExpect(status().isOk())
+                .andExpect(view().name("teacher/courses"))
+                .andExpect(model().attributeHasFieldErrors("courseForm", "code"));
+
+        String html = mvc.perform(get("/teacher/courses").with(profA()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).doesNotContain("(optional)");
+        // Thymeleaf writes id/name/value after the static attributes, so match the tag regardless of order.
+        Matcher codeInput = Pattern.compile("<input[^>]*\\bname=\"code\"[^>]*>")
+                .matcher(html);
+        assertThat(codeInput.find()).as("code input rendered").isTrue();
+        assertThat(codeInput.group()).containsPattern("\\srequired[\\s>=/]");
     }
 
     @Test
