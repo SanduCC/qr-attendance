@@ -190,6 +190,23 @@ class TeacherAccessTest extends IntegrationTestSupport {
         assertThat(courseService.listCourses(teacherId)).hasSize(1);
     }
 
+    /** Regression (#19): the code is required, so the form must not present it as optional. */
+    @Test
+    void courseCodeIsRequiredAndTheFormSaysSo() throws Exception {
+        createTeacher(PROF_A);
+
+        mvc.perform(post("/teacher/courses").with(csrf()).with(profA()).param("name", "Algoritmi").param("code", " "))
+                .andExpect(status().isOk())
+                .andExpect(view().name("teacher/courses"))
+                .andExpect(model().attributeHasFieldErrors("courseForm", "code"));
+
+        String html = mvc.perform(get("/teacher/courses").with(profA()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).doesNotContain("(optional)");
+        assertThat(html).containsPattern("<input[^>]*name=\"code\"[^>]*required");
+    }
+
     @Test
     void openingASessionRequiresCsrf() throws Exception {
         long teacherId = createTeacher(PROF_A).getId();
