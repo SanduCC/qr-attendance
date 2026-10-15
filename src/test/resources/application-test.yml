@@ -11,7 +11,8 @@ spring:
 
 attendance:
   public-base-url: http://localhost
-  teacher-emails: ""
+  # Shared by all integration tests (one Spring context); only AdminTeachersTest signs in with it.
+  admin-emails: "Head.Admin@university.example.ro"
   security:
     qr-hmac-secret: test-qr-hmac-secret-0123456789abcdef-0123456789
     hash-pepper: test-hash-pepper-0123456789abcdef-0123456789abc

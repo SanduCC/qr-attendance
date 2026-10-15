@@ -68,14 +68,14 @@ for s in qr-hmac-secret hash-pepper google-client-secret database-password redis
 done
 ```
 
-Non-secret settings go in an env file (YAML avoids escaping the commas in `TEACHER_EMAILS`):
+Non-secret settings go in an env file (YAML avoids escaping the commas in `ADMIN_EMAILS`):
 
 ```yaml
 # cloudrun.env.yaml — no secrets in here
 DATABASE_URL: "jdbc:postgresql://ep-xxxx.eu-central-1.aws.neon.tech/attendance?sslmode=require"
 DATABASE_USERNAME: "attendance"
 PUBLIC_BASE_URL: "https://attendance.example.ro"
-TEACHER_EMAILS: "ana.popescu@example.ro,ion.ionescu@example.ro"
+ADMIN_EMAILS: "ana.popescu@example.ro"
 GOOGLE_CLIENT_ID: "1234-abc.apps.googleusercontent.com"
 FORWARD_HEADERS_STRATEGY: "framework"
 COOKIE_SECURE: "true"
@@ -224,4 +224,4 @@ Convenient git-push deploys, but at the time of writing their free offers either
 - [ ] **Privacy notice** shown on the student page before sign-in, naming the controller (school/teacher), purpose, data stored and retention.
 - [ ] Only minimal data stored: name, email, provider subject, check-in time; IP and device ID **hashed with the pepper**, never raw.
 - [ ] Access logs on the proxy/host don't keep raw IPs longer than needed.
-- [ ] Teacher allowlist (`TEACHER_EMAILS`) reviewed each term.
+- [ ] Teacher list at `/admin/teachers` reviewed each term (deactivate people who left); `ADMIN_EMAILS` kept to the people who really manage teachers.

@@ -49,8 +49,8 @@ management:
 attendance:
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
   display-zone: Europe/Bucharest
-  # Comma-separated; teachers can also be added as rows in the teacher table.
-  teacher-emails: ${TEACHER_EMAILS:}
+  # Comma-separated. Only admins can add/deactivate teachers (/admin/teachers); admins are teachers too.
+  admin-emails: ${ADMIN_EMAILS:}
   security:
     qr-hmac-secret: ${QR_HMAC_SECRET}
     hash-pepper: ${HASH_PEPPER}

@@ -21,7 +21,7 @@ import org.springframework.validation.annotation.Validated;
 public record AttendanceProperties(
         @NotBlank String publicBaseUrl,
         @NotNull ZoneId displayZone,
-        List<String> teacherEmails,
+        List<String> adminEmails,
         @Valid @NotNull Security security,
         @Valid @NotNull Sessions session,
         @Valid @NotNull Qr qr,
@@ -30,7 +30,7 @@ public record AttendanceProperties(
 
     public AttendanceProperties {
         publicBaseUrl = publicBaseUrl == null ? null : publicBaseUrl.replaceAll("/+$", "");
-        teacherEmails = teacherEmails == null ? List.of() : teacherEmails.stream()
+        adminEmails = adminEmails == null ? List.of() : adminEmails.stream()
                 .filter(Objects::nonNull)
                 .map(e -> e.trim().toLowerCase(Locale.ROOT))
                 .filter(e -> !e.isEmpty())

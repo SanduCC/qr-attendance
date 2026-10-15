@@ -15,7 +15,7 @@ A teacher opens an attendance session for a class. A large screen or projector s
 
 ## Domain model
 ```
-Teacher(id, email, name, created_at)
+Teacher(id, email, name NULL, active, added_by NULL, created_at, last_login_at NULL)
 Course(id, teacher_id, name, code)
 AttendanceSession(id UUID, course_id, opened_at, closes_at, status[OPEN|CLOSED],
                   expected_headcount NULL, geofence_lat NULL, geofence_lng NULL, geofence_radius_m NULL)
@@ -31,7 +31,9 @@ AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_h
 ## Core flows
 
 ### Teacher
-1. Log in (Google OAuth, teacher role from an allowlist in config/DB).
+1. Log in (Google OAuth). The teacher role comes only from the admin-managed teacher list (`/admin/teachers`);
+   admins come from `ADMIN_EMAILS` (config only) and are teachers too. Nobody gets a role by signing in.
+   Deactivated teachers lose access immediately; their courses and attendance are kept.
 2. Create or select a course → "Start session" (default duration 15 min, configurable).
 3. Display page (`/sessions/{id}/display`) shows a **rotating QR code** plus a live counter: "23 checked in / expected 25".
 4. Live attendance table on the same page (via SSE or 3s polling); the teacher can remove a suspicious entry.
@@ -57,6 +59,9 @@ AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_h
 ## API / routes
 | Method | Path | Who | Purpose |
 |---|---|---|---|
+| GET | `/admin/teachers` | admin | list teachers |
+| POST | `/admin/teachers` | admin | add a teacher by email (or reactivate) |
+| POST | `/admin/teachers/{id}/deactivate` · `/activate` | admin | revoke / restore teacher access |
 | GET | `/teacher/courses` | teacher | list courses |
 | POST | `/teacher/courses/{id}/sessions` | teacher | open session |
 | GET | `/sessions/{id}/display` | teacher | QR + live counter page |

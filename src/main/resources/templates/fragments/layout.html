@@ -26,6 +26,7 @@
     <a class="brand" th:href="@{/}">QR Attendance</a>
     <nav class="topnav">
         <a sec:authorize="hasRole('TEACHER')" th:href="@{/teacher/courses}">My courses</a>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/teachers}">Teachers</a>
         <form sec:authorize="isAuthenticated()" class="inline" method="post" th:action="@{/logout}">
             <button type="submit" class="linkbtn">Sign out</button>
         </form>
