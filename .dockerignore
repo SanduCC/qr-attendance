@@ -1,0 +1,29 @@
+# Build output and local caches
+target/
+.tools/
+node_modules/
+*.log
+HELP.md
+
+# VCS / IDE
+.git/
+.github/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Secrets and local config (never bake into the image)
+.env
+.env.*
+*.p8
+application-local.yml
+
+# Not needed for the image build
+Dockerfile
+.dockerignore
+docker-compose*.yml
+docs/
+*.md
