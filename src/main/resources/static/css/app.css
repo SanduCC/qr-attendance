@@ -42,6 +42,7 @@ a { color: var(--link); }
 .center { text-align: center; }
 .muted { color: var(--muted); }
 .small { font-size: .9rem; }
+.block { display: block; }
 .lead { font-size: 1.15rem; }
 .eyebrow { margin: 0 0 .25rem; color: var(--muted); font-size: .85rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 .notice { border-left: 3px solid var(--border); padding-left: .75rem; }

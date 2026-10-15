@@ -62,12 +62,12 @@ Amazon Corretto 25 (Java 25) · Spring Boot 3.5 · PostgreSQL 16 + Flyway · Red
    Or set just the required ones by hand:
 
    ```bash
-   export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... TEACHER_EMAILS=you@gmail.com
+   export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... ADMIN_EMAILS=you@gmail.com
    export QR_HMAC_SECRET="$(openssl rand -base64 48)" HASH_PEPPER="$(openssl rand -base64 48)"
    ```
 
    ```powershell
-   $env:GOOGLE_CLIENT_ID = "..."; $env:GOOGLE_CLIENT_SECRET = "..."; $env:TEACHER_EMAILS = "you@gmail.com"
+   $env:GOOGLE_CLIENT_ID = "..."; $env:GOOGLE_CLIENT_SECRET = "..."; $env:ADMIN_EMAILS = "you@gmail.com"
    $env:QR_HMAC_SECRET = "<random, >= 32 chars>"; $env:HASH_PEPPER = "<random, >= 32 chars>"
    ```
 
@@ -77,7 +77,8 @@ Amazon Corretto 25 (Java 25) · Spring Boot 3.5 · PostgreSQL 16 + Flyway · Red
    ./mvnw spring-boot:run          # Windows cmd/PowerShell: .\mvnw.cmd spring-boot:run
    ```
 
-4. Open <http://localhost:8080>, sign in with an email listed in `TEACHER_EMAILS`.
+4. Open <http://localhost:8080> and sign in with an email listed in `ADMIN_EMAILS`. Admins are teachers too;
+   add other teachers at <http://localhost:8080/admin/teachers>.
 
 To run the whole stack in containers instead: `docker compose up -d --build` (secrets come from `.env`).
 
@@ -132,7 +133,7 @@ All configuration comes from environment variables. Secrets are never committed;
 | `DATABASE_PASSWORD` | `attendance` | |
 | `REDIS_URL` | `redis://localhost:6379` | use `rediss://` for TLS (e.g. Upstash) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | base URL encoded in the QR code |
-| `TEACHER_EMAILS` | *(empty)* | comma-separated allowlist of teacher Google emails |
+| `ADMIN_EMAILS` | *(empty)* | comma-separated admin Google emails. Admins are teachers and the only ones who can add/deactivate teachers (`/admin/teachers`); nobody becomes a teacher by signing in |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **required** | Google OAuth web client; redirect URI = `{PUBLIC_BASE_URL}/login/oauth2/code/google` |
 | `QR_HMAC_SECRET` | **required**, ≥ 32 chars | rotating QR HMAC key |
 | `HASH_PEPPER` | **required**, ≥ 32 chars | pepper for IP/device hashes and the device-cookie signature |

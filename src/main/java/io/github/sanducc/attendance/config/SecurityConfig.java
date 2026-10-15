@@ -33,6 +33,7 @@ public class SecurityConfig {
                         // Scan landing is public: the QR token is validated before sign-in.
                         .requestMatchers(HttpMethod.GET, "/a/*").permitAll()
                         .requestMatchers("/a/**").authenticated()
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
                         .requestMatchers("/teacher/**", "/sessions/**").hasRole("TEACHER")
                         .anyRequest().authenticated())
                 .oauth2Login(oauth -> oauth
