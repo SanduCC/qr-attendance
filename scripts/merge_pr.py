@@ -100,6 +100,14 @@ def main():
         pr = wait_until(args.pr, checks_finished, args.timeout, "checks on the refreshed commit")
         pr = wait_until(args.pr, mergeability_known, 120, "GitHub to compute mergeability")
         behind = 0
+    elif pr["state"] == "OPEN" and not args.dry_run:
+        # Checks may still be running on a fresh push: wait for them instead of refusing.
+        pr = wait_until(args.pr, checks_finished, args.timeout, "checks to finish")
+        pr = wait_until(args.pr, mergeability_known, 120, "GitHub to compute mergeability")
+
+    if pr["state"] == "MERGED":  # GitHub auto-merge (gh pr merge --auto) can land it while we wait
+        print(f"PR #{pr['number']}: {pr['title']} is already merged.")
+        return
 
     problems = []
     if pr["state"] != "OPEN":
