@@ -229,9 +229,21 @@ For other hosts (Oracle Cloud Always Free, a cheap EU VPS with Caddy, university
 
 Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security
+
+- **Headers** on every response (`SecurityConfig`): a strict CSP (`'self'` only, no inline scripts or styles,
+  `frame-ancestors 'none'`), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` (the scan URL
+  carries the QR token), a `Permissions-Policy` that turns off camera, microphone, geolocation and similar features,
+  and cross-origin isolation (`COOP same-origin`, `COEP require-corp`, `CORP same-origin`). Pages are `no-store`.
+- **Cookies:** `SESSION` and `device_id` are HttpOnly, Secure and SameSite=Lax.
+- **On every PR:** gitleaks, Semgrep and CodeQL (required), plus Dependabot alerts and security updates.
+- **On the live app:** an OWASP ZAP **passive** baseline scan (`dast.yml`) every Monday and after each deploy. It
+  doesn't attack and doesn't sign in, so it's safe while students use the app. Findings go to the job summary, a
+  report artifact and one GitHub issue; accepted findings and their reasons are in `.zap/rules.tsv`.
+
 ## Roadmap
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #39 trust only the proxy's `X-Forwarded-For` entry for client IPs · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
+- **Operations:** #39 trust only the proxy's `X-Forwarded-For` entry for client IPs · #31 custom domain · #1 upgrade to Spring Boot 4.x
 - **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
