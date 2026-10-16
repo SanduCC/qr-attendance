@@ -49,6 +49,10 @@ updates:
     labels: [dependencies, docker]
     commit-message:
       prefix: "docker"
+    ignore:
+      # Stay on the Java 25 LTS (#14): non-LTS Corretto majors are bumped on purpose, not via Dependabot.
+      - dependency-name: "amazoncorretto"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
     directory: /
