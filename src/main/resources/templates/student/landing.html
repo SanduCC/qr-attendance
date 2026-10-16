@@ -13,8 +13,14 @@
         <p class="notice">
             To record your attendance we store your name, email, Google account ID and check-in time.
             Your IP address and device are kept only as one-way hashes to prevent cheating.
+            <th:block th:if="${locationRequired}">This class also checks that you're in the room: your phone's location
+                is compared with the classroom once and not stored.</th:block>
             <a th:href="@{/privacy}">Privacy notice</a>
         </p>
+        <div class="banner warn" role="note" th:if="${!#strings.isEmpty(allowedDomains)}">
+            <p>Sign in with your <strong th:text="${allowedDomains}">@university.ro</strong> Google account. Personal
+                Gmail accounts can't check in to this course.</p>
+        </div>
 
         <th:block th:unless="${inAppBrowser.embedded()}">
             <p>

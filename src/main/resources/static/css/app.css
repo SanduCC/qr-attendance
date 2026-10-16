@@ -148,6 +148,12 @@ form.inline { display: inline; margin: 0; }
   .form-grid.inline-submit .submit { padding-top: 1.625rem; }
 }
 .field.submit { margin-bottom: 0; }
+.field-hint { color: var(--muted); font-size: var(--fs-sm); margin: var(--s1) 0 0; }
+.check { display: flex; align-items: flex-start; gap: var(--s2); min-height: 44px; padding: .55rem 0; font-weight: 600; cursor: pointer; }
+.check input { flex: none; width: 1.25rem; height: 1.25rem; margin: .1rem 0 0; accent-color: var(--primary); }
+.check .hint { font-weight: 400; }
+.geofence { border: 0; padding: 0; margin: 0 0 var(--s3); min-width: 0; }
+.geofence [role="status"]:empty { display: none; }
 .copy-row { display: flex; gap: var(--s2); margin: 0 0 var(--s2); }
 .copy-input {
   flex: 1; min-width: 0; min-height: 44px; padding: .5rem; font: inherit; font-size: var(--fs-sm);
@@ -167,7 +173,7 @@ form.inline { display: inline; margin: 0; }
 }
 .disclosure[open] > summary::before { transform: rotate(45deg); }
 .disclosure-body { padding-top: var(--s3); }
-.new-course > summary { font-size: var(--fs-lg); color: var(--text); }
+.new-course > summary, .course-settings > summary { font-size: var(--fs-lg); color: var(--text); }
 
 /* Banners, badges, empty states */
 .banner { padding: var(--s3) var(--s4); border-radius: var(--r); margin: 0 0 var(--s4); border: 1px solid; }

@@ -18,7 +18,8 @@
             <div id="qr" class="qr-box" aria-live="off">
                 <p class="qr-loading">Loading QR code…</p>
             </div>
-            <p class="display-sub">Scan with your phone camera to check in</p>
+            <p class="display-sub">Scan with your phone camera to check in<th:block th:if="${geofenceRadiusM != null}">
+                · allow location when asked</th:block></p>
             <p id="qr-url" class="qr-url"></p>
         </div>
 
@@ -51,6 +52,8 @@
             <p id="countdown-wrap" class="countdown" th:hidden="${!open}">
                 Closes in <strong id="countdown" class="countdown-time">--:--</strong>
             </p>
+            <p class="countdown" th:if="${geofenceRadiusM != null}"
+               th:text="${'Location check on: within ' + geofenceRadiusM + ' m of where this session was started'}">Location check on: within 100 m</p>
         </div>
 
         <div id="over-warning" class="banner warn banner-lg" role="alert" hidden>

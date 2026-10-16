@@ -1,9 +1,13 @@
 package io.github.sanducc.attendance.support;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.sanducc.attendance.checkin.AttendanceRecord;
 import io.github.sanducc.attendance.checkin.AttendanceRecordRepository;
@@ -23,6 +27,7 @@ import io.github.sanducc.attendance.session.QrTokenService;
 import io.github.sanducc.attendance.session.SessionService;
 import io.github.sanducc.attendance.config.session.ResilientSessionRepository;
 import jakarta.servlet.http.Cookie;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -38,6 +43,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -46,9 +52,11 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
@@ -131,6 +139,51 @@ public abstract class IntegrationTestSupport {
                 .authorities(authorities);
     }
 
+    /** A student signed in with a Google Workspace account: the ID token carries {@code hd} (null = consumer). */
+    protected RequestPostProcessor workspaceStudentLogin(String subject, String email, String hostedDomain) {
+        return oidcLogin()
+                .clientRegistration(google())
+                .idToken(token -> {
+                    token.subject(subject);
+                    token.claim("email", email);
+                    token.claim("email_verified", true);
+                    token.claim("given_name", "Ana");
+                    token.claim("family_name", "Popescu");
+                    if (hostedDomain != null) {
+                        token.claim("hd", hostedDomain);
+                    }
+                })
+                .authorities(new SimpleGrantedAuthority(AppOidcUserService.ROLE_STUDENT));
+    }
+
+    /**
+     * Runs the real OAuth2 login ({@link FakeGoogleConfiguration} plays Google): the redirect to "Google", then the
+     * callback with the matching state. {@code hostedDomain} becomes the ID token's {@code hd} claim (null = a
+     * consumer account without one).
+     */
+    protected ResultActions signInWithGoogle(Browser browser, String email, String hostedDomain) throws Exception {
+        String location = authorizationRedirect(browser);
+        String state = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("state");
+        assertThat(state).isNotBlank();
+        String decodedState = URLDecoder.decode(state, StandardCharsets.UTF_8);
+        return browser.perform(get("/login/oauth2/code/google")
+                .param("code", FakeGoogleConfiguration.code(email, hostedDomain))
+                .param("state", decodedState));
+    }
+
+    protected ResultActions signInWithGoogle(Browser browser, String email) throws Exception {
+        return signInWithGoogle(browser, email, null);
+    }
+
+    /** Starts the OAuth2 login and returns where the app sends the browser ("Google"'s authorization URL). */
+    protected String authorizationRedirect(Browser browser) throws Exception {
+        MvcResult authorize = browser.perform(get("/oauth2/authorization/google"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string(HttpHeaders.LOCATION, startsWith("https://accounts.google.com/")))
+                .andReturn();
+        return authorize.getResponse().getHeader(HttpHeaders.LOCATION);
+    }
+
     protected ClientRegistration google() {
         ClientRegistration registration = clientRegistrations.findByRegistrationId("google");
         if (registration == null) {
@@ -201,6 +254,24 @@ public abstract class IntegrationTestSupport {
         }
         if (lastName != null) {
             request.param("lastName", lastName);
+        }
+        return browser.perform(request);
+    }
+
+    /** The check-in POST with what checkin-location.js would send on a session with a location check. */
+    protected ResultActions postCheckInWithLocation(Browser browser, UUID sessionId, RequestPostProcessor login,
+                                                    String firstName, String lastName, String latitude,
+                                                    String longitude, String accuracy) throws Exception {
+        MockHttpServletRequestBuilder request = post("/a/{id}/check-in", sessionId).with(csrf()).with(login)
+                .param("firstName", firstName).param("lastName", lastName);
+        if (latitude != null) {
+            request.param("latitude", latitude);
+        }
+        if (longitude != null) {
+            request.param("longitude", longitude);
+        }
+        if (accuracy != null) {
+            request.param("accuracy", accuracy);
         }
         return browser.perform(request);
     }

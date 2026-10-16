@@ -27,6 +27,7 @@ public final class TestProperties {
                 new AttendanceProperties.Sessions(Duration.ofMinutes(15), Duration.ofHours(3), Duration.ofMinutes(3)),
                 new AttendanceProperties.Qr(Duration.ofSeconds(15)),
                 new AttendanceProperties.RateLimit(120, 10),
-                new AttendanceProperties.Retention("09-30", 30));
+                new AttendanceProperties.Retention("09-30", 30),
+                new AttendanceProperties.GeofenceSettings(100, 25, 1000, 100));
     }
 }

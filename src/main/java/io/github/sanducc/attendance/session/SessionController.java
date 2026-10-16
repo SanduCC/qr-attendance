@@ -61,6 +61,8 @@ public class SessionController {
         model.addAttribute("sessionId", sessionId);
         model.addAttribute("open", session.isOpenAt(now));
         model.addAttribute("expectedHeadcount", session.getExpectedHeadcount());
+        Geofence geofence = session.getGeofence();
+        model.addAttribute("geofenceRadiusM", geofence == null ? null : geofence.radiusMeters());
         model.addAttribute("openedDay", displayTime.day(session.getOpenedAt()));
         model.addAttribute("opensAt", displayTime.time(session.getOpenedAt()));
         model.addAttribute("closesAt", displayTime.time(session.getClosesAt()));

@@ -23,7 +23,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             AppOidcUserService oidcUserService,
-                                            LoginSuccessHandler loginSuccessHandler) throws Exception {
+                                            LoginSuccessHandler loginSuccessHandler,
+                                            WorkspaceDomainHintResolver domainHintResolver) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/login", "/privacy", "/error",
@@ -38,6 +39,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2Login(oauth -> oauth
                         .loginPage("/login")
+                        // Rule 7: hd hint for domain-locked courses (the ID token's hd claim is what's checked).
+                        .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(domainHintResolver))
                         .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
                         .successHandler(loginSuccessHandler))
                 .logout(logout -> logout.logoutSuccessUrl("/"))

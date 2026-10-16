@@ -1,10 +1,14 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/layout :: head(${'Check in: ' + courseName})}"></head>
+<head>
+    <th:block th:replace="~{fragments/layout :: headTags(${'Check in: ' + courseName})}"></th:block>
+    <script th:if="${locationRequired}" th:src="@{/js/checkin-location.js}" defer></script>
+</head>
 <body>
 <header th:replace="~{fragments/layout :: header('plain')}"></header>
 <main class="container">
-    <form class="card" method="post" th:action="@{/a/{id}/check-in(id=${sessionId})}" th:object="${nameForm}">
+    <form id="checkin-form" class="card" method="post" th:action="@{/a/{id}/check-in(id=${sessionId})}"
+          th:object="${nameForm}">
         <p class="eyebrow">Check in</p>
         <h1 th:text="${courseName}">Course name</h1>
 
@@ -37,7 +41,23 @@
 
         <p class="small muted" th:if="${email != null}">Signed in as <strong th:text="${email}">ana@example.com</strong></p>
 
-        <button type="submit" class="btn btn-primary btn-block btn-lg">Check in</button>
+        <!--/* Rule 6: only on sessions with a location check. checkin-location.js fills these in on submit. */-->
+        <th:block th:if="${locationRequired}">
+            <p class="notice">This class checks that you're in the room. When you tap <strong>Check in</strong>, your
+                phone asks to share its location: allow it. The location is compared with the classroom once and
+                not stored.</p>
+            <input type="hidden" name="latitude" id="latitude" value="">
+            <input type="hidden" name="longitude" id="longitude" value="">
+            <input type="hidden" name="accuracy" id="accuracy" value="">
+            <noscript><div class="banner warn"><p>The location check needs JavaScript. Turn it on, or open this
+                page in Chrome or Safari.</p></div></noscript>
+            <div id="location-error" class="banner warn" role="alert" th:hidden="${locationError == null}">
+                <p id="location-error-text" th:text="${locationError}">You seem to be too far from the classroom.</p>
+            </div>
+            <p id="location-status" class="small muted" role="status" aria-live="polite"></p>
+        </th:block>
+
+        <button id="checkin-submit" type="submit" class="btn btn-primary btn-block btn-lg">Check in</button>
     </form>
 
     <form th:if="${registered}" class="center" method="post" th:action="@{/logout}">
