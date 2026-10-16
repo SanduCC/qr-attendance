@@ -39,7 +39,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -82,6 +81,7 @@ class TeacherAccessTest extends IntegrationTestSupport {
         mvc.perform(get("/sessions/{id}/qr-token", f.sessionId()).with(student)).andExpect(status().isForbidden());
         mvc.perform(get("/sessions/{id}/records", f.sessionId()).with(student)).andExpect(status().isForbidden());
         mvc.perform(get("/sessions/{id}/export.csv", f.sessionId()).with(student)).andExpect(status().isForbidden());
+        mvc.perform(get("/sessions/{id}/export.xlsx", f.sessionId()).with(student)).andExpect(status().isForbidden());
 
         assertThat(courseService.listCourses(f.teacherId())).hasSize(1);
     }
@@ -517,29 +517,7 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.open").value(false));
     }
 
-    @Test
-    void exportsCsvAttachment() throws Exception {
-        Fixture f = fixtureForProfA(null);
-        insertRecord(f.sessionId(), insertStudent("sub-1", "Ștefan", "Țărănescu"));
-        insertRecord(f.sessionId(), insertStudent("sub-2", "Ana", "Popescu"));
-
-        MvcResult result = mvc.perform(get("/sessions/{id}/export.csv", f.sessionId()).with(profA()))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith("text/csv"))
-                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, startsWith("attachment")))
-                .andReturn();
-
-        ContentDisposition disposition = ContentDisposition.parse(
-                result.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
-        assertThat(disposition.isAttachment()).isTrue();
-        assertThat(disposition.getFilename()).isEqualTo("CS101_2026-10-16.csv");
-
-        String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertThat(csv).startsWith("﻿last_name,first_name,email,checked_in_at\r\n");
-        assertThat(csv).contains(
-                "Țărănescu,Ștefan,sub-1@student.example.ro,2026-10-16 09:00:05\r\n",
-                "Popescu,Ana,sub-2@student.example.ro,2026-10-16 09:00:05\r\n");
-    }
+    // CSV / Excel export content: see export.ExportTest.
 
     // ------------------------------------------------------------------ ownership
 
@@ -569,6 +547,7 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .andExpect(status().isNotFound());
         mvc.perform(post("/sessions/{id}/close", s).with(csrf()).with(profB)).andExpect(status().isNotFound());
         mvc.perform(get("/sessions/{id}/export.csv", s).with(profB)).andExpect(status().isNotFound());
+        mvc.perform(get("/sessions/{id}/export.xlsx", s).with(profB)).andExpect(status().isNotFound());
 
         assertThat(recordRepository.existsById(record.getId())).isTrue();
         assertThat(sessionRepository.findById(s).orElseThrow().getStatus()).isEqualTo(SessionStatus.OPEN);

@@ -1,33 +1,50 @@
 package io.github.sanducc.attendance.export;
 
-import io.github.sanducc.attendance.checkin.RecordView;
 import java.io.IOException;
 import java.io.Writer;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
-/** RFC 4180 CSV with a UTF-8 BOM so Excel shows Romanian diacritics correctly. */
+/**
+ * RFC 4180-style CSV for Excel in a Romanian/EU locale: ';' separator (the EU list separator, so Excel splits the
+ * columns on double-click), a UTF-8 BOM so the diacritics show correctly, CRLF line endings.
+ */
 public final class CsvExporter {
 
+    public static final String CONTENT_TYPE = "text/csv; charset=UTF-8";
+
     private static final char BOM = '﻿';
-    private static final String HEADER = "last_name,first_name,email,checked_in_at";
+    private static final char SEPARATOR = ';';
+    private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private CsvExporter() {
     }
 
-    public static void write(Writer out, List<RecordView> records, ZoneId zone) throws IOException {
-        DateTimeFormatter timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(zone);
+    public static void write(Writer out, AttendanceSheet sheet) throws IOException {
         out.write(BOM);
-        out.write(HEADER);
-        out.write("\r\n");
-        for (RecordView r : records) {
-            out.write(String.join(",",
-                    cell(r.lastName()), cell(r.firstName()), cell(r.email()),
-                    cell(timestamp.format(r.checkedInAt()))));
-            out.write("\r\n");
+        writeLine(out, AttendanceSheet.HEADERS);
+        for (AttendanceSheet.Row r : sheet.rows()) {
+            List<String> cells = new ArrayList<>(5);
+            cells.add(Integer.toString(r.nr()));
+            cells.add(r.lastName());
+            cells.add(r.firstName());
+            cells.add(r.email());
+            cells.add(TIMESTAMP.format(r.checkedInAt()));
+            writeLine(out, cells);
         }
         out.flush();
+    }
+
+    private static void writeLine(Writer out, List<String> values) throws IOException {
+        StringBuilder line = new StringBuilder();
+        for (String value : values) {
+            if (!line.isEmpty()) {
+                line.append(SEPARATOR);
+            }
+            line.append(cell(value));
+        }
+        out.write(line.append("\r\n").toString());
     }
 
     static String cell(String value) {
@@ -36,8 +53,8 @@ public final class CsvExporter {
         }
         // Names are user-provided: neutralise spreadsheet formula injection.
         String safe = !value.isEmpty() && "=+-@\t\r".indexOf(value.charAt(0)) >= 0 ? "'" + value : value;
-        boolean quote = safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")
-                || !safe.equals(value);
+        boolean quote = safe.indexOf(SEPARATOR) >= 0 || safe.contains("\"") || safe.contains("\n")
+                || safe.contains("\r") || !safe.equals(value);
         return quote ? "\"" + safe.replace("\"", "\"\"") + "\"" : safe;
     }
 }

@@ -20,6 +20,7 @@
     <properties>
         <java.version>25</java.version>
         <zxing.version>3.5.4</zxing.version>
+        <fastexcel.version>0.20.2</fastexcel.version>
     </properties>
 
     <dependencies>
@@ -77,6 +78,11 @@
             <artifactId>core</artifactId>
             <version>${zxing.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.dhatim</groupId>
+            <artifactId>fastexcel</artifactId>
+            <version>${fastexcel.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -101,6 +107,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.dhatim</groupId>
+            <artifactId>fastexcel-reader</artifactId>
+            <version>${fastexcel.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
