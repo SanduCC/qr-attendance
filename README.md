@@ -59,7 +59,7 @@ Files are named `<course code>_<date>`, or after the course name when there is n
 | Rule | How |
 |---|---|
 | Rotating QR | HMAC-SHA256 token per 15 s window; current + previous window accepted (~30 s) |
-| Scan-time validation | Token checked before login and bound to the browser's HTTP session; 3 min grace period to finish sign-in |
+| Scan-time validation | Token checked before login and bound to the browser's HTTP session (and device cookie); 3 min grace period to finish sign-in |
 | One check-in per account | DB unique constraint `(session_id, student_id)`; students are keyed on the Google `sub`, never email or name |
 | One check-in per device | Signed httpOnly `device_id` cookie, only its hash stored; DB unique `(session_id, device_id_hash)` |
 | Headcount check | Display warns when check-ins exceed the expected headcount |
@@ -70,7 +70,7 @@ IP addresses and device IDs are stored only as peppered hashes. Attendance data 
 
 ## Stack
 
-Amazon Corretto 25 (Java 25) · Spring Boot 3.5 · PostgreSQL 16 + Flyway · Redis 7 · Thymeleaf + vanilla JS · Docker / docker compose · JUnit 5 + Testcontainers
+Amazon Corretto 25 (Java 25) · Spring Boot 3.5 · PostgreSQL 16 + Flyway · Redis 7 (HTTP sessions via Spring Session, rate limiting) · Thymeleaf + vanilla JS · Docker / docker compose · JUnit 5 + Testcontainers
 
 ## Quick start (local)
 
@@ -173,7 +173,7 @@ All configuration comes from environment variables. Secrets are never committed;
 | `DATABASE_URL` | `jdbc:postgresql://localhost:5432/attendance` | JDBC URL |
 | `DATABASE_USERNAME` | `attendance` | |
 | `DATABASE_PASSWORD` | `attendance` | |
-| `REDIS_URL` | `redis://localhost:6379` | use `rediss://` for TLS (e.g. Upstash) |
+| `REDIS_URL` | `redis://localhost:6379` | use `rediss://` for TLS (e.g. Upstash). **Required**: HTTP sessions live here (see below) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | base URL encoded in the QR code |
 | `ADMIN_EMAILS` | *(empty)* | comma-separated admin Google emails (replaces the old `TEACHER_EMAILS`). Admins are teachers and the only ones who can add/deactivate teachers (`/admin/teachers`); nobody becomes a teacher by signing in |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **required** | Google OAuth web client; redirect URI = `{PUBLIC_BASE_URL}/login/oauth2/code/google` |
@@ -185,13 +185,15 @@ All configuration comes from environment variables. Secrets are never committed;
 
 Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits and retention. Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
 
+**HTTP sessions** (the scan bound to the browser, the OAuth login state, the sign-in itself) are stored in Redis with Spring Session, under `qra:session:sessions:<id>`. Users stay signed in across deploys and restarts, and several app instances share them. The session cookie is `SESSION` (HttpOnly, `Secure` unless `COOKIE_SECURE=false`, SameSite=Lax). The idle timeout is `server.servlet.session.timeout` (60 min), and an open projector page keeps its session alive. If Redis is down, pages that need a session answer 503 "try again in a minute" and the rate limiter lets requests through. A session the app can't read back after an upgrade is discarded, so the user just signs in again.
+
 ## Deployment
 
 **How it's deployed today:**
-- **Google Cloud Run** in `europe-west1`, scaling from 0 to 1 instance (`--max-instances 1`, because HTTP sessions live in memory).
+- **Google Cloud Run** in `europe-west1`, scaling from 0 to 1 instance (`--max-instances 1`). HTTP sessions are in Redis, so the maximum can be raised and deploys no longer sign anyone out.
 - **Secret Manager** holds the five secrets (`DATABASE_PASSWORD`, `REDIS_URL`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HASH_PEPPER`), mounted as env vars. Everything else is a plain env var on the service.
 - The service runs as a **dedicated runtime service account**. Its only permission is read access to those five secrets.
-- Postgres is on Neon (Frankfurt) and Redis on Upstash (Belgium).
+- Postgres is on Neon (Frankfurt) and Redis on Upstash (Belgium). Redis holds the HTTP sessions and the rate-limit counters. One class uses about 1,400 Redis commands, so the free plan's 500K/month covers about 11 classes a day ([details](docs/deployment.md#upstash-command-budget)).
 
 Redeploying is manual until continuous deployment lands (#27). Build an image from a clean export of `master`, then point the service at it. The env vars and secrets stay on the service.
 
@@ -226,5 +228,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #26 scheduled jobs (retention purge, auto-close) on Cloud Run · #27 continuous deployment to Cloud Run · #28 cold start · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #7 more than one app instance (shared HTTP sessions) · #1 upgrade to Spring Boot 4.x
+- **Operations:** #26 scheduled jobs (retention purge, auto-close) on Cloud Run · #27 continuous deployment to Cloud Run · #28 cold start · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
 - **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
