@@ -37,14 +37,17 @@ COPY --from=build /workspace/extracted/ /app/
 # - InitialRAMPercentage=25 (128 MB of 512 MiB): the AOT cache's archived heap objects (~6 MB) are loaded into the
 #   old generation at JVM start. With the default initial heap (1/64 of RAM = 8 MB) they don't fit, and the JVM
 #   then refuses to start ("archived heap objects cannot be loaded ... unrecoverable error").
+# - TieredStopAtLevel=1: JIT-compile with C1 only. The C2 compiler's work during startup competes with the app for
+#   the single vCPU (startup -35% in the CI benchmark, and less memory); C1 code is slower at peak, which doesn't
+#   matter at this app's few requests per second.
 # - --sun-misc-unsafe-memory-access=allow: Netty (Redis client) still uses sun.misc.Unsafe; keeps JDK 23's
 #   behaviour without the "terminally deprecated method" warning at every start.
-RUN printf '%s\n' -XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25 -XX:+UseSerialGC \
+RUN printf '%s\n' -XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 \
       --sun-misc-unsafe-memory-access=allow > /app/jvm.options
 
 # AOT cache (JEP 483/514/515, issue #28). A training run starts the Spring context once (until it is refreshed,
-# then exits) and records the loaded + linked classes and method profiles in /app/app.aot. Production starts read
-# them from there instead of loading, verifying and linking thousands of classes again.
+# then exits) and records the loaded and linked classes in /app/app.aot. Production starts map them from there
+# instead of loading, verifying and linking thousands of classes again (startup -50% in the CI benchmark).
 # - No database or Redis at build time: Flyway, schema validation and the database warm-up are off, Hibernate gets
 #   an explicit dialect instead of asking the database, and nothing connects to Redis before the refresh.
 # - The secrets are random throwaway values that exist only inside this RUN; they are not in the image.
