@@ -10,6 +10,9 @@ spring:
             client-secret: test-google-client-secret
 
 attendance:
+  # The datasource comes from Testcontainers (@ServiceConnection), not spring.datasource.url.
+  startup:
+    warm-up-database: false
   public-base-url: http://localhost
   # Shared by all integration tests (one Spring context); only AdminTeachersTest signs in with it.
   admin-emails: "Head.Admin@university.example.ro"
