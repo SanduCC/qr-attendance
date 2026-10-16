@@ -23,7 +23,7 @@ public final class TestProperties {
                 "http://localhost",
                 ZoneId.of("Europe/Bucharest"),
                 List.of(),
-                new AttendanceProperties.Security(qrSecret, pepper, secureCookies),
+                new AttendanceProperties.Security(qrSecret, pepper, secureCookies, 1),
                 new AttendanceProperties.Sessions(Duration.ofMinutes(15), Duration.ofHours(3), Duration.ofMinutes(3)),
                 new AttendanceProperties.Qr(Duration.ofSeconds(15)),
                 new AttendanceProperties.RateLimit(120, 10),

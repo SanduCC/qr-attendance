@@ -181,6 +181,7 @@ All configuration comes from environment variables. Secrets are never committed;
 | `HASH_PEPPER` | **required**, ≥ 32 chars | pepper for IP/device hashes and the device-cookie signature |
 | `COOKIE_SECURE` | `true` | set `false` only for plain-http local dev in browsers other than Chrome |
 | `FORWARD_HEADERS_STRATEGY` | `none` | set `framework` behind a TLS-terminating proxy (Cloud Run, Caddy, nginx, tunnels) |
+| `TRUSTED_PROXY_HOPS` | `1` | with `framework` only: proxies in front that append to `X-Forwarded-For`; the client IP (per-IP rate limit, `ip_hash`) is that many entries from the right, never a value the client sent. `1` = Cloud Run `run.app`, Caddy, nginx; `2` = behind an external load balancer; `0` = TCP peer ([details](docs/deployment.md#client-ip-behind-a-proxy)) |
 | `SPRING_PROFILES_ACTIVE` | | `local` is used by `./mvnw spring-boot:run` |
 | `JOBS_IN_APP_SCHEDULE` | `true` | in-app timers for the retention purge (03:30 Europe/Bucharest) and auto-close (every minute). Set `false` on Cloud Run, where Cloud Scheduler triggers them |
 | `JOBS_TRIGGER_SERVICE_ACCOUNT` | *(empty = disabled)* | the Google service account whose OIDC token may call `POST /internal/jobs/daily` (Cloud Scheduler) |
@@ -245,5 +246,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #39 trust only the proxy's `X-Forwarded-For` entry for client IPs · #31 custom domain · #1 upgrade to Spring Boot 4.x
+- **Operations:** #31 custom domain · #1 upgrade to Spring Boot 4.x
 - **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
