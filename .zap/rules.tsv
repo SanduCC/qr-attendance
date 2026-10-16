@@ -1,0 +1,8 @@
+# ZAP baseline rules for .github/workflows/dast.yml (issue #12). Tab-separated: <rule id> <TAB> <level> <TAB> <text>.
+# Levels: IGNORE (accepted, also left out of the GitHub issue), INFO, WARN (default), FAIL; OUTOFSCOPE excludes URLs.
+# Every IGNORE / OUTOFSCOPE needs a "#" line above it saying why. Real header/cookie issues get fixed in the app,
+# not silenced here.
+
+# Spider exclusion (all rules): the "Sign in with Google" link starts an OAuth login, which creates an HTTP session in
+# Redis and redirects to accounts.google.com (a third-party host we must not scan).
+*	OUTOFSCOPE	^https?://[^/]+/oauth2/.*$
