@@ -33,9 +33,9 @@ Serverless container plus managed free-tier databases, all in EU regions.
 ### Caveats
 
 - **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot — about 17 s with 512 MiB, 1 vCPU and CPU boost (#28). In practice the teacher opening the display page warms the instance before students scan. `--cpu-boost` helps; `--min-instances=1` removes cold starts but is billed while idle.
-- **Instances.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state, the sign-in) live in Redis, so `--max-instances` can be raised above 1, and a deploy doesn't sign anyone out (the projector page keeps rotating its QR code). The in-app scheduled jobs then run on every instance. Both are idempotent: auto-close is a single `UPDATE … WHERE status = OPEN AND closes_at <= now`, and the retention purge is a pair of `DELETE … WHERE` statements with a fixed cutoff, so a second run changes nothing. The Upstash command budget is per database, not per instance.
+- **Instances.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state, the sign-in) live in Redis, so `--max-instances` can be raised above 1, and a deploy doesn't sign anyone out (the projector page keeps rotating its QR code). The in-app scheduled jobs (if enabled) then run on every instance. Both are idempotent: auto-close is a single `UPDATE … WHERE status = OPEN AND closes_at <= now`, and the retention purge is a pair of `DELETE … WHERE` statements with a fixed cutoff, so a second run changes nothing. The Upstash command budget is per database, not per instance.
 - **Redis down.** Pages that need a session (scan, sign-in, check-in, teacher pages) answer **503 "temporarily unavailable, try again in a minute"** with `Retry-After`. They never continue without the session. The rate limiter fails open. `/actuator/health` reports DOWN (503) while Redis is unreachable. That's accurate, but don't use it as a liveness probe: restarting the app doesn't fix Redis.
-- **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so scheduled jobs (e.g. the daily retention purge) only run while an instance is alive. For the GDPR retention purge, "next active day" may be weeks away, so trigger it with Cloud Scheduler (#26).
+- **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so in-app timers only fire while an instance happens to be alive, and for the GDPR retention purge the next active day may be weeks away. On Cloud Run, Cloud Scheduler therefore triggers the jobs over HTTPS and the in-app timers are off: see [Scheduled jobs](#scheduled-jobs-cloud-scheduler).
 - **Live updates.** The projector page polls every 3 s, so Cloud Run's request timeout (default 5 min, max 60 min) doesn't affect it. If the live table moves to SSE (#6), clients will have to reconnect after each timeout.
 - `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS).
 - `PUBLIC_BASE_URL` = the `https://<service>-<hash>.<region>.run.app` URL or your custom domain.
@@ -272,6 +272,108 @@ To deploy an older commit instead, revert it on `master` through a PR (the workf
 **Deploys end users' sessions.** HTTP sessions (logins, a scanned QR token) are in memory, so after the traffic
 switch everyone signs in again, including the teacher's projector page. Avoid merging app changes during a class.
 
+### Scheduled jobs (Cloud Scheduler)
+
+The app has two background jobs. Both are idempotent, so a retry or a second run changes nothing.
+
+| Job | What it does | Why it matters |
+|---|---|---|
+| Retention purge | Deletes sessions opened before the start of the most recent academic year whose grace period is over (default: year ends 30 Sep, plus 30 days), their attendance records (cascade) and students left without records. Teachers and courses stay. | **GDPR**: must really run |
+| Auto-close | Marks expired `OPEN` sessions `CLOSED` | cosmetic: an expired session already counts as closed everywhere |
+
+Every purge logs one line with counts only, also when nothing was due, e.g.
+`Retention purge: cutoff 2026-09-30T21:00:00Z, 12 session(s) and 87 student(s) deleted`.
+
+**Where the app runs all the time** (docker compose, a VPS): in-app timers, on by default. The purge runs daily at 03:30
+Europe/Bucharest (`attendance.retention.cron`), auto-close every minute. Nothing to set up.
+
+**On Cloud Run**, Cloud Scheduler calls `POST /internal/jobs/daily` every night at 03:30 Europe/Bucharest. The endpoint
+runs the purge and then auto-close, and answers with the counts as JSON. `JOBS_IN_APP_SCHEDULE=false` turns the
+in-app timers off, so the jobs run once a night, from one place.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `JOBS_IN_APP_SCHEDULE` | `true` | `false` on Cloud Run |
+| `JOBS_TRIGGER_SERVICE_ACCOUNT` | *(empty = endpoint disabled, every call gets 401)* | the only service account whose token is accepted |
+| `JOBS_TRIGGER_AUDIENCE` | `PUBLIC_BASE_URL` + `/internal/jobs/daily` | the exact `aud` of the token; the setup pins it so a custom domain (#31) doesn't change it |
+
+#### Why an endpoint, and how it's secured
+
+The options were:
+- **(a) Cloud Scheduler → HTTPS endpoint with a Google OIDC token** (chosen). It's one image and one service, so
+  there's nothing extra to keep in sync, `deploy.yml` is unchanged, and the deployer service account needs no new
+  permissions. It costs one request a night.
+- **(b) A Cloud Run job running the same image in "purge and exit" mode.** It would need its own copy of the env vars
+  and the five secret mounts, plus a `deploy.yml` step and `run.developer` on the job to keep its image current,
+  or the purge would run old code against a migrated schema. It also boots Spring Boot (~20 s) for a job that takes
+  milliseconds. It avoids a public endpoint, but that's the only advantage.
+- **(c) Also purge on startup.** It's free, but it's no guarantee: when nobody opens the app for weeks (holidays),
+  nothing starts.
+
+The service is public (`--allow-unauthenticated`), so Cloud Run doesn't check the token. The app does, in its own
+Spring Security filter chain for this one path (`JobTriggerSecurityConfig`, `JobTriggerTokens`):
+- The token has to be a JWT signed with **RS256** by **Google's keys** (JWKS
+  `https://www.googleapis.com/oauth2/v3/certs`, fetched on first use and cached). Unsigned (`alg: none`),
+  HMAC-signed, forged and tampered tokens are rejected. The verification is Spring Security's `NimbusJwtDecoder`,
+  not custom code.
+- It needs `iss` = `https://accounts.google.com`, **`aud` exactly** `JOBS_TRIGGER_AUDIENCE` (a single value),
+  **`email` exactly** `JOBS_TRIGGER_SERVICE_ACCOUNT` and `email_verified` = `true`. `exp` must be present and not
+  past (60 s skew). A Google token minted for any other audience or account is useless.
+- Only `POST` is allowed. CSRF is skipped for this path only, because no cookie or session is ever read or created
+  there. Every other form POST still needs its CSRF token.
+- A failure is a bare `401` (no token or a bad one) or `403` (wrong method), with no body and no
+  `WWW-Authenticate` detail. The reason goes to the app log only, e.g. `Rejected a call to /internal/jobs/daily: … The aud
+  claim is not valid`.
+- There's a limit of **10 calls per minute per (hashed) IP**, checked before the token is parsed (`429`). The scheduler
+  retries at least 10 minutes apart.
+- The scheduler service account has **no IAM roles at all**. It's only an identity Google signs tokens for.
+
+#### One-time setup
+
+Run [`docs/scripts/setup-scheduled-jobs.ps1`](scripts/setup-scheduled-jobs.ps1) once in Windows PowerShell as a project
+owner, **after** the release with `/internal/jobs/daily` is deployed. It's safe to re-run. It does the following:
+
+```powershell
+$gcloud = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+$Project = 'qr-attendance-sanducc'; $Region = 'europe-west1'
+$SchedulerSa = "qr-attendance-scheduler@$Project.iam.gserviceaccount.com"
+$Uri = 'https://qr-attendance-1057355191791.europe-west1.run.app/internal/jobs/daily'   # PUBLIC_BASE_URL + path
+
+# 1. API
+& $gcloud services enable cloudscheduler.googleapis.com --project $Project
+# 2. Scheduler identity: no roles (the service is public, so no run.invoker either)
+& $gcloud iam service-accounts create qr-attendance-scheduler --project $Project `
+    --display-name 'qr-attendance Cloud Scheduler (OIDC caller of /internal/jobs/daily, no roles)'
+# 3. The app accepts only this account and audience; in-app timers off (new revision, same image and secrets)
+& $gcloud run services update qr-attendance --project $Project --region $Region `
+    --update-env-vars "JOBS_TRIGGER_SERVICE_ACCOUNT=$SchedulerSa,JOBS_TRIGGER_AUDIENCE=$Uri,JOBS_IN_APP_SCHEDULE=false"
+# 4. The nightly job
+& $gcloud scheduler jobs create http qr-attendance-daily-jobs --project $Project --location $Region `
+    --schedule '30 3 * * *' --time-zone 'Europe/Bucharest' --uri $Uri --http-method POST `
+    --oidc-service-account-email $SchedulerSa --oidc-token-audience $Uri `
+    --attempt-deadline 180s --max-retry-attempts 3 --min-backoff 10m --max-backoff 1h `
+    --description 'GDPR retention purge and auto-close (issue 26)'
+# 5. Check: run it now, then look for the purge line
+& $gcloud scheduler jobs run qr-attendance-daily-jobs --project $Project --location $Region
+& $gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=qr-attendance AND textPayload:RetentionJob' `
+    --project $Project --freshness 10m --limit 3 --format 'value(timestamp,textPayload)'
+```
+
+As project owner you already have the two permissions this needs: `iam.serviceAccounts.actAs` on the scheduler
+account, to create the job, and enabling the API. The Cloud Scheduler service agent gets its role automatically when
+the API is enabled. `deploy.yml` and the deployer service account don't change. Env vars stay on the service across
+deploys, like the others.
+
+**Checking it later.** `gcloud scheduler jobs describe qr-attendance-daily-jobs --location europe-west1` shows the
+last attempt and its status. The purge line is in the Cloud Run logs every night. If the scheduler gets a `401`,
+the app log's `Rejected a call to /internal/jobs/daily: …` line names the failing check. Usually `JOBS_TRIGGER_AUDIENCE`
+and the job's `--oidc-token-audience` differ. Change both together.
+
+**Cost: $0.** A billing account gets 3 Cloud Scheduler jobs free, then each costs $0.10 a month. Check that other
+projects on the same billing account don't already use the 3. Cloud Run sees one request a night: a ~20 s cold
+start, about 600 vCPU-seconds a month against 180,000 free. Neon wakes once a night, for about 5 minutes of compute.
+Upstash sees one or two commands for the rate limit.
+
 ---
 
 ## (b) Oracle Cloud Always Free ARM VM + docker compose + Caddy
@@ -377,7 +479,7 @@ Convenient git-push deploys, but at the time of writing their free offers either
 - [ ] Secrets in a **secret manager** (or a root-only `chmod 600` `.env` on a VPS) — never in git, images or CI logs.
 - [ ] Postgres and Redis **not exposed** to the internet; strong, non-default passwords.
 - [ ] **Backups** automated, encrypted, stored in the EU, and a restore tested at least once.
-- [ ] **Retention purge job** runs daily (on scale-to-zero hosts, verify it actually runs or trigger it externally).
+- [ ] **Retention purge job** runs daily: the in-app timer on always-on hosts, or Cloud Scheduler on scale-to-zero hosts ([Scheduled jobs](#scheduled-jobs-cloud-scheduler)). Check for the nightly `Retention purge: cutoff …` log line.
 - [ ] **Privacy notice** shown on the student page before sign-in, naming the controller (school/teacher), purpose, data stored and retention.
 - [ ] Only minimal data stored: name, email, provider subject, check-in time; IP and device ID **hashed with the pepper**, never raw.
 - [ ] Access logs on the proxy/host don't keep raw IPs longer than needed.

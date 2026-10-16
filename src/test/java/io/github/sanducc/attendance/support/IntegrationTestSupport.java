@@ -60,7 +60,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
-@Import({TestcontainersConfiguration.class, TestClockConfiguration.class, FakeGoogleConfiguration.class})
+@Import({TestcontainersConfiguration.class, TestClockConfiguration.class, FakeGoogleConfiguration.class,
+        JobTriggerTestConfiguration.class})
 public abstract class IntegrationTestSupport {
 
     protected static final String RAW_TEST_IP = "127.0.0.1";
