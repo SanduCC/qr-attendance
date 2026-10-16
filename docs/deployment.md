@@ -28,16 +28,38 @@ Serverless container plus managed free-tier databases, all in EU regions.
 
 - **Cloud Run** region: `europe-central2` (Warsaw, closest to Romania) or `europe-west1` (Belgium). Pricing tiers differ per region — check which regions the free tier covers.
 - **Postgres:** [Neon](https://neon.tech) (e.g. AWS Frankfurt) or [Supabase](https://supabase.com) (e.g. Frankfurt). Use the *direct* (non-pooled) connection string, with `sslmode=require`, e.g. `DATABASE_URL=jdbc:postgresql://ep-xxxx.eu-central-1.aws.neon.tech/attendance?sslmode=require`. Free databases suspend when idle; the first query after a pause is slower.
-- **Redis:** [Upstash](https://upstash.com) in an EU region, TLS URL: `REDIS_URL=rediss://default:<password>@<name>.upstash.io:6379`. The free plan has a monthly command quota; one class uses very little of it.
+- **Redis:** [Upstash](https://upstash.com) in an EU region, TLS URL: `REDIS_URL=rediss://default:<password>@<name>.upstash.io:6379`. Redis is **required**: it holds the HTTP sessions (Spring Session, keys `qra:session:sessions:<id>`) as well as the rate-limit counters. Session keys use a TTL and no keyspace notifications, so no `CONFIG` command is needed (Upstash doesn't allow it). See [Upstash command budget](#upstash-command-budget) below.
 
 ### Caveats
 
 - **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot — about 17 s with 512 MiB, 1 vCPU and CPU boost (#28). In practice the teacher opening the display page warms the instance before students scan. `--cpu-boost` helps; `--min-instances=1` removes cold starts but is billed while idle.
-- **Keep `--max-instances=1`.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state) live in memory. With several instances a student could land on an instance that doesn't know their session. Scaling out requires adding Spring Session with Redis first.
+- **Instances.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state, the sign-in) live in Redis, so `--max-instances` can be raised above 1, and a deploy doesn't sign anyone out (the projector page keeps rotating its QR code). The in-app scheduled jobs then run on every instance. Both are idempotent: auto-close is a single `UPDATE … WHERE status = OPEN AND closes_at <= now`, and the retention purge is a pair of `DELETE … WHERE` statements with a fixed cutoff, so a second run changes nothing. The Upstash command budget is per database, not per instance.
+- **Redis down.** Pages that need a session (scan, sign-in, check-in, teacher pages) answer **503 "temporarily unavailable, try again in a minute"** with `Retry-After`. They never continue without the session. The rate limiter fails open. `/actuator/health` reports DOWN (503) while Redis is unreachable. That's accurate, but don't use it as a liveness probe: restarting the app doesn't fix Redis.
 - **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so scheduled jobs (e.g. the daily retention purge) only run while an instance is alive. For the GDPR retention purge, "next active day" may be weeks away, so trigger it with Cloud Scheduler (#26).
 - **Live updates.** The projector page polls every 3 s, so Cloud Run's request timeout (default 5 min, max 60 min) doesn't affect it. If the live table moves to SSE (#6), clients will have to reconnect after each timeout.
 - `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS).
 - `PUBLIC_BASE_URL` = the `https://<service>-<hash>.<region>.run.app` URL or your custom domain.
+
+### Upstash command budget
+
+Upstash free plan, checked 2026-10-16 (it changes, so recheck): **500K commands/month**, 256 MB data, 10 GB bandwidth/month, 10 MB max request, 10K commands/s, 1 database. `INFO`, `PING`, `AUTH` and `HELLO` aren't billed, so health checks and connection setup are free.
+
+The table estimates one class: a 15-minute session with 30 students. The projector page polls the records every 3 s and the QR token about twice per 15 s window.
+
+| Who | Redis commands |
+|---|---|
+| Projector page: ~420 polls, each one HGETALL; the session's expiry is refreshed at most once a minute (3 commands) | ~465 |
+| Teacher: sign in, start, close, export | ~40 |
+| Each student: scan (new session) 2, Google redirect 4, callback 5, confirm 4, check-in 4, done 4, rate limiter ~6 | ~29 × 30 = ~870 |
+| **Per class** | **~1,400** |
+
+At 4 classes a day for 30 days, that's about **168K commands a month, 34% of the free plan**. The plan covers about 350 classes a month (about 11 a day).
+
+Two settings keep this low:
+- The session is written only at the end of a request (flush on save), and only for attributes that changed.
+- Requests that change nothing, like the projector's polling, don't rewrite the session.
+
+With Spring Session's defaults, every poll would cost 4 commands and a class about 2,600. Data and bandwidth are small: a session is a few KB with a 60-minute TTL, and polling reads about 5 MB per class.
 
 ### Setup
 
@@ -218,7 +240,7 @@ Convenient git-push deploys, but at the time of writing their free offers either
 
 ## GDPR checklist for production
 
-- [ ] Database, Redis and app hosted in **EU regions**; data processing agreements (DPAs) accepted with every provider.
+- [ ] Database, Redis and app hosted in **EU regions**; data processing agreements (DPAs) accepted with every provider. Redis holds the HTTP sessions, including a signed-in user's Google profile (name, email), until 60 minutes of inactivity.
 - [ ] **HTTPS only** (`COOKIE_SECURE=true`, valid certificate, `FORWARD_HEADERS_STRATEGY=framework` behind the proxy).
 - [ ] Secrets in a **secret manager** (or a root-only `chmod 600` `.env` on a VPS) — never in git, images or CI logs.
 - [ ] Postgres and Redis **not exposed** to the internet; strong, non-default passwords.
