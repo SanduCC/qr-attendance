@@ -32,7 +32,9 @@ spring:
 server:
   port: ${PORT:8080}
   # Set to "framework" behind a TLS-terminating proxy (Cloud Run, Caddy, nginx). Leave "none" otherwise,
-  # or clients could spoof X-Forwarded-For to dodge the per-IP rate limit.
+  # or clients could spoof X-Forwarded-For to dodge the per-IP rate limit. With "framework" the app installs
+  # TrustedProxyForwardedHeaderFilter: Spring's ForwardedHeaderFilter for scheme/host/port, but the client IP is
+  # the X-Forwarded-For entry the proxy appended (attendance.security.trusted-proxy-hops), never a client value.
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   servlet:
     session:
@@ -72,6 +74,10 @@ attendance:
     qr-hmac-secret: ${QR_HMAC_SECRET}
     hash-pepper: ${HASH_PEPPER}
     secure-cookies: ${COOKIE_SECURE:true}
+    # Only with FORWARD_HEADERS_STRATEGY=framework: how many proxies in front of the app append to
+    # X-Forwarded-For. The client IP is that many entries from the right (#39). 1 = Cloud Run's run.app URL,
+    # Caddy, nginx; 2 = behind an external Application Load Balancer; 0 = ignore the header (TCP peer).
+    trusted-proxy-hops: ${TRUSTED_PROXY_HOPS:1}
   session:
     default-duration: 15m
     max-duration: 3h

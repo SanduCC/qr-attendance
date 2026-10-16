@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 /** Typed view of the {@code attendance.*} settings. Secrets come only from env vars. */
@@ -41,7 +42,10 @@ public record AttendanceProperties(
     public record Security(
             @NotBlank @Size(min = 32, message = "must be at least 32 characters") String qrHmacSecret,
             @NotBlank @Size(min = 32, message = "must be at least 32 characters") String hashPepper,
-            boolean secureCookies) {}
+            boolean secureCookies,
+            // Proxies in front of the app that append to X-Forwarded-For; used with forward-headers-strategy
+            // framework only (TrustedProxyForwardedHeaderFilter, issue #39).
+            @DefaultValue("1") @Min(0) int trustedProxyHops) {}
 
     public record Sessions(
             @NotNull Duration defaultDuration,
