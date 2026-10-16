@@ -16,6 +16,10 @@ spring:
   data:
     redis:
       url: ${REDIS_URL:redis://localhost:6379}
+      # Redis is used through RedisTemplate / Spring Session only. Without this, startup scans the JPA repositories
+      # a second time as Redis repository candidates and logs a line for each of them.
+      repositories:
+        enabled: false
   security:
     oauth2:
       client:
@@ -42,6 +46,13 @@ server:
   mime-mappings:
     webmanifest: application/manifest+json
 
+logging:
+  level:
+    # "Flyway upgrade recommended: PostgreSQL 18 is newer than this version of Flyway" at every start (Neon runs
+    # PG 18, Boot 3.5 ships Flyway 11.7). Goes away with the Flyway that comes with the Boot 4 upgrade (#1); remove
+    # this line then.
+    org.flywaydb.core.internal.database.base.Database: error
+
 management:
   endpoints:
     web:
@@ -49,6 +60,10 @@ management:
         include: health
 
 attendance:
+  startup:
+    # Open one throwaway database connection in the background while Spring starts, so a suspended Neon compute
+    # is already awake when Flyway needs the database (DatabaseWarmUp, #28).
+    warm-up-database: true
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
   display-zone: Europe/Bucharest
   # Comma-separated. Only admins can add/deactivate teachers (/admin/teachers); admins are teachers too.

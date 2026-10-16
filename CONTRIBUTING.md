@@ -37,6 +37,7 @@ fails any PR whose branch doesn't follow this.
 | `security.yml` | secret scan (gitleaks) | no secrets in any commit of the branch's history | yes |
 | `security.yml` | SAST (semgrep) | Semgrep CE rules for Java, GitHub Actions and Dockerfile; on PRs only findings the PR adds fail | yes |
 | `codeql.yml` | Analyze (java-kotlin / javascript-typescript / actions) | GitHub CodeQL `security-extended` queries; Java is built with Corretto 25. Alerts under *Security > Code scanning* | yes |
+| `startup-benchmark.yml` | startup benchmark (informational) | only on PRs touching `Dockerfile`, `pom.xml` or `src/main`: the AOT cache is used, and cold-start times of the PR's image vs its base, in the job summary ([docs](docs/deployment.md#cold-start)) | no |
 
 `security.yml` also runs a full scan every Monday, CodeQL every Sunday. Actions are pinned to commit SHAs with a
 `# vX.Y.Z` comment.

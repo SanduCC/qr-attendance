@@ -1,0 +1,92 @@
+name: startup benchmark
+
+# Informational, NOT a required check (issue #28). Builds the image of the PR and of its base commit, starts each a
+# few times against Postgres 16 + Redis 7 with Cloud Run's limits (1-2 vCPU, 512 MiB), and writes the cold-start
+# times to the job summary. Also fails if the image's AOT cache can't be used. A cold container on a GitHub runner
+# is not Cloud Run (no image pull, no cross-region database), so compare the variants with each other, not with
+# production's absolute numbers.
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - pom.xml
+      - 'src/main/**'
+      - scripts/startup-benchmark.sh
+      - .github/workflows/startup-benchmark.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: startup-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  benchmark:
+    name: startup benchmark (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: attendance
+          POSTGRES_USER: attendance
+          POSTGRES_PASSWORD: attendance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U attendance -d attendance"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # the base commit, for the "before" image
+          persist-credentials: false
+
+      - name: Build the image of this commit
+        run: docker build -t qra:new .
+
+      - name: Build the image of the base commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          docker build -t qra:base "$RUNNER_TEMP/base"
+          docker image ls qra
+
+      - name: The AOT cache is used (1 vCPU, 512 MiB)
+        run: scripts/startup-benchmark.sh --verify-aot qra:new
+
+      # "without AOT cache" separates the cache from the other changes (extracted jar, JVM flags, warm-up).
+      - name: Benchmark with 2 vCPU (Cloud Run's 1 vCPU with startup CPU boost)
+        env:
+          CPUS: '2'
+          RUNS: '5'
+        run: |
+          {
+            echo "### Cold start, 2 vCPU"
+            scripts/startup-benchmark.sh base=qra:base new=qra:new 'new without AOT cache=qra:new@-XX:AOTMode=off'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Benchmark with 1 vCPU (no boost)
+        env:
+          CPUS: '1'
+          RUNS: '3'
+        run: |
+          {
+            echo "### Cold start, 1 vCPU"
+            scripts/startup-benchmark.sh base=qra:base new=qra:new 'new without AOT cache=qra:new@-XX:AOTMode=off'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
