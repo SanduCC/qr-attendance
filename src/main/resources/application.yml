@@ -71,4 +71,15 @@ attendance:
   retention:
     academic-year-end: "09-30"
     grace-days: 30
+    # In-app schedule of the purge (only when jobs.in-app-schedule is true), Europe/Bucharest.
     cron: "0 30 3 * * *"
+  jobs:
+    # In-app timers for the retention purge (cron above) and auto-close (every minute). Right for docker compose /
+    # a VPS. On Cloud Run (scale to zero) set JOBS_IN_APP_SCHEDULE=false and let Cloud Scheduler call
+    # POST /internal/jobs/daily (docs/deployment.md, "Scheduled jobs").
+    in-app-schedule: ${JOBS_IN_APP_SCHEDULE:true}
+    trigger:
+      # The service account whose Google OIDC token may call POST /internal/jobs/daily. Empty = endpoint disabled.
+      service-account: ${JOBS_TRIGGER_SERVICE_ACCOUNT:}
+      # The token's exact audience. Empty = PUBLIC_BASE_URL + /internal/jobs/daily.
+      audience: ${JOBS_TRIGGER_AUDIENCE:}
