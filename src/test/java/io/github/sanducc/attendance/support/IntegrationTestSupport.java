@@ -21,8 +21,11 @@ import io.github.sanducc.attendance.course.TeacherRepository;
 import io.github.sanducc.attendance.session.AttendanceSessionRepository;
 import io.github.sanducc.attendance.session.QrTokenService;
 import io.github.sanducc.attendance.session.SessionService;
+import io.github.sanducc.attendance.config.session.ResilientSessionRepository;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,11 +38,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -50,16 +54,18 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * Base for Testcontainers-backed integration tests. Skipped automatically when Docker isn't
  * available (local Windows dev); runs in CI. Every test starts from empty tables, an empty
- * Redis and the clock at {@link MutableClock#DEFAULT_START}.
+ * Redis (so no HTTP sessions) and the clock at {@link MutableClock#DEFAULT_START}.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
-@Import({TestcontainersConfiguration.class, TestClockConfiguration.class})
+@Import({TestcontainersConfiguration.class, TestClockConfiguration.class, FakeGoogleConfiguration.class})
 public abstract class IntegrationTestSupport {
 
     protected static final String RAW_TEST_IP = "127.0.0.1";
+    /** Spring Session's cookie (default name; it replaced the servlet container's JSESSIONID). */
+    protected static final String SESSION_COOKIE = "SESSION";
 
     private static final AtomicInteger SEQUENCE = new AtomicInteger();
 
@@ -76,6 +82,7 @@ public abstract class IntegrationTestSupport {
     @Autowired protected AttendanceRecordRepository recordRepository;
     @Autowired protected AttendanceSessionRepository sessionRepository;
     @Autowired protected PepperedHasher hasher;
+    @Autowired protected ResilientSessionRepository httpSessions;
 
     @BeforeEach
     void resetSharedState() {
@@ -173,7 +180,7 @@ public abstract class IntegrationTestSupport {
     // ---------------------------------------------------------------- browser
 
     protected Browser newBrowser() {
-        return new Browser(mvc, new MockHttpSession(), null);
+        return new Browser(mvc, httpSessions, new SessionCookie(), null);
     }
 
     /** Scans the QR as this browser (anonymous unless the browser's session already holds a login). */
@@ -202,46 +209,55 @@ public abstract class IntegrationTestSupport {
     }
 
     /**
-     * One phone/browser: an HTTP session plus the {@code device_id} cookie captured from the first
-     * /a/** response. Two Browser objects with different cookies are two different phones.
+     * One phone/browser: its Spring Session cookie ({@code SESSION}) plus the {@code device_id} cookie captured
+     * from the first /a/** response, both replayed on every request like a real browser. Two Browser objects
+     * with different cookies are two different phones.
      */
     public static final class Browser {
 
         private final MockMvc mvc;
-        private final MockHttpSession session;
+        private final ResilientSessionRepository sessions;
+        private final SessionCookie sessionCookie;
         private Cookie deviceCookie;
 
-        private Browser(MockMvc mvc, MockHttpSession session, Cookie deviceCookie) {
+        private Browser(MockMvc mvc, ResilientSessionRepository sessions, SessionCookie sessionCookie,
+                        Cookie deviceCookie) {
             this.mvc = mvc;
-            this.session = session;
+            this.sessions = sessions;
+            this.sessionCookie = sessionCookie;
             this.deviceCookie = deviceCookie;
         }
 
         public ResultActions perform(MockHttpServletRequestBuilder request) throws Exception {
-            request.session(session);
+            if (sessionCookie.value != null) {
+                request.cookie(sessionCookie.value);
+            }
             if (deviceCookie != null) {
                 request.cookie(deviceCookie);
             }
             ResultActions result = mvc.perform(request);
-            Cookie issued = result.andReturn().getResponse().getCookie(DeviceIdFilter.COOKIE_NAME);
-            if (issued != null) {
-                deviceCookie = new Cookie(issued.getName(), issued.getValue());
+            MockHttpServletResponse response = result.andReturn().getResponse();
+            Cookie issuedDevice = response.getCookie(DeviceIdFilter.COOKIE_NAME);
+            if (issuedDevice != null) {
+                deviceCookie = new Cookie(issuedDevice.getName(), issuedDevice.getValue());
+            }
+            Cookie issuedSession = response.getCookie(SESSION_COOKIE);
+            if (issuedSession != null) {
+                boolean expired = issuedSession.getMaxAge() == 0 || issuedSession.getValue() == null
+                        || issuedSession.getValue().isEmpty();
+                sessionCookie.value = expired ? null : new Cookie(SESSION_COOKIE, issuedSession.getValue());
             }
             return result;
         }
 
         /** Same phone (same device cookie), fresh HTTP session: e.g. after signing out and in as someone else. */
         public Browser sameDeviceNewSession() {
-            return new Browser(mvc, new MockHttpSession(), deviceCookie);
+            return new Browser(mvc, sessions, new SessionCookie(), deviceCookie);
         }
 
         /** This browser's HTTP session but another phone's device cookie. */
         public Browser withDeviceCookieOf(Browser other) {
-            return new Browser(mvc, session, other.deviceCookie);
-        }
-
-        public MockHttpSession session() {
-            return session;
+            return new Browser(mvc, sessions, sessionCookie, other.deviceCookie);
         }
 
         public Cookie deviceCookie() {
@@ -257,8 +273,27 @@ public abstract class IntegrationTestSupport {
             return value.substring(0, value.indexOf('.'));
         }
 
-        public PendingCheckIn pending() {
-            return PendingCheckIn.from(session);
+        /** The HTTP session id (the cookie carries it Base64-encoded), or null without a session. */
+        public String sessionId() {
+            return sessionCookie.value == null ? null
+                    : new String(Base64.getDecoder().decode(sessionCookie.value.getValue()), StandardCharsets.UTF_8);
         }
+
+        /** This browser's HTTP session as stored in Redis, or null. */
+        public Session storedSession() {
+            String id = sessionId();
+            return id == null ? null : sessions.findById(id);
+        }
+
+        public PendingCheckIn pending() {
+            Session session = storedSession();
+            return session == null ? null
+                    : (session.getAttribute(PendingCheckIn.SESSION_KEY) instanceof PendingCheckIn p ? p : null);
+        }
+    }
+
+    /** Shared by Browser views of the same HTTP session, so an id rotated through one is seen by all. */
+    private static final class SessionCookie {
+        private Cookie value;
     }
 }

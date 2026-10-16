@@ -32,6 +32,8 @@ server:
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   servlet:
     session:
+      # HTTP sessions live in Redis (Spring Session, keys qra:session:sessions:<id>, see SessionConfig), so they
+      # survive deploys and are shared by all instances. Cookie name: SESSION.
       timeout: 60m
       cookie:
         http-only: true

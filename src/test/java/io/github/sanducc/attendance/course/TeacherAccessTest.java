@@ -31,6 +31,7 @@ import io.github.sanducc.attendance.config.AttendanceProperties;
 import io.github.sanducc.attendance.session.AttendanceSession;
 import io.github.sanducc.attendance.session.SessionStatus;
 import io.github.sanducc.attendance.support.IntegrationTestSupport;
+import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -233,8 +234,10 @@ class TeacherAccessTest extends IntegrationTestSupport {
         assertThat(courseService.listCourses(teacherId)).hasSize(2);
 
         // The page after the redirect: flash banner, highlighted card, a course without a code renders fine.
-        String html = mvc.perform(get("/teacher/courses").with(profA())
-                        .flashAttr("message", "Course created").flashAttr("createdCourseId", courseId))
+        // Follow the redirect like a browser: the flash attributes come back from the (Redis) HTTP session.
+        Cookie sessionCookie = created.getResponse().getCookie(SESSION_COOKIE);
+        assertThat(sessionCookie).as("POST created an HTTP session for the flash attributes").isNotNull();
+        String html = mvc.perform(get("/teacher/courses").with(profA()).cookie(sessionCookie))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(html).contains("Course created", "id=\"course-" + courseId + "\"", "is-new", "No sessions yet");
