@@ -125,4 +125,4 @@ jobs:
               end),
               "",
               "Full report: artifact `\($artifact)` of this run (HTML, JSON, Markdown)."
-          ' "$report" >> "$GITHUB_STEP_SUMMARY"
+          ' "$report" | tee -a "$GITHUB_STEP_SUMMARY"
