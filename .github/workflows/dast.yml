@@ -22,6 +22,8 @@ on:
     types: [completed]
     branches: [master]
   workflow_dispatch:
+  push:  # TEMPORARY: registers the new workflow so it can be dispatched from this branch; removed before review
+    branches: [feature/zap-baseline-dast]
 
 permissions:
   contents: read
