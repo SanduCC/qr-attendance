@@ -134,3 +134,4 @@ Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HAS
 - Test the student flow on a narrow (375px) viewport.
 - Every change goes through a PR to `master` (protected: no direct pushes, 0 approvals, all checks green).
   Branch names: `feature/…` (anything new, incl. CI/docs), `bugfix/…`, `hotfix/…` — see CONTRIBUTING.md.
+- After merging a user-visible feature, update README.md (features, config, roadmap) and the local .claude/RESUME.md hand-off.
