@@ -7,10 +7,14 @@ import java.time.Clock;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * GDPR retention purge (see {@link RetentionPolicy}). Idempotent: DELETEs with a cutoff that only moves once a year.
+ * Triggered by {@link InAppJobScheduler} (docker compose / VPS) or {@code POST /internal/jobs/daily} (Cloud
+ * Scheduler on Cloud Run).
+ */
 @Component
 public class RetentionJob {
 
@@ -29,16 +33,19 @@ public class RetentionJob {
         this.clock = clock;
     }
 
-    @Scheduled(cron = "${attendance.retention.cron}", zone = "${attendance.display-zone}")
+    /** What one purge did. Counts only, never personal data. */
+    public record Result(Instant cutoff, int deletedSessions, int deletedStudents) {}
+
+    /** Deletes sessions (and, by cascade, their records) opened before the cutoff, then students left without records. */
     @Transactional
-    public void purge() {
+    public Result purge() {
         Instant cutoff = RetentionPolicy.purgeCutoff(clock.instant(), properties.displayZone(),
                 properties.retention().academicYearEndDay(), properties.retention().graceDays());
         int deletedSessions = sessions.deleteOpenedBefore(cutoff);
         int deletedStudents = students.deleteWithoutRecords();
-        if (deletedSessions > 0 || deletedStudents > 0) {
-            log.info("Retention purge before {}: {} session(s), {} student(s) deleted",
-                    cutoff, deletedSessions, deletedStudents);
-        }
+        // One line per run, also when nothing was due: the log is the evidence that the purge ran.
+        log.info("Retention purge: cutoff {}, {} session(s) and {} student(s) deleted",
+                cutoff, deletedSessions, deletedStudents);
+        return new Result(cutoff, deletedSessions, deletedStudents);
     }
 }

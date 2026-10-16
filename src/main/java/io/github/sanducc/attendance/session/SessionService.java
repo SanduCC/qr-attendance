@@ -18,7 +18,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -185,12 +184,18 @@ public class SessionService {
         return sessions.findById(sessionId);
     }
 
-    @Scheduled(fixedDelayString = "PT1M", initialDelayString = "PT1M")
+    /**
+     * Marks expired OPEN sessions CLOSED. Cosmetic: {@link AttendanceSession#isOpenAt} already treats them as closed.
+     * Triggered by {@code InAppJobScheduler} (every minute) or {@code POST /internal/jobs/daily}.
+     *
+     * @return the number of sessions closed
+     */
     @Transactional
-    public void closeExpiredSessions() {
+    public int closeExpiredSessions() {
         int closed = sessions.closeExpired(clock.instant());
         if (closed > 0) {
             log.info("Closed {} expired attendance session(s)", closed);
         }
+        return closed;
     }
 }

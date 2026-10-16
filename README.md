@@ -182,6 +182,9 @@ All configuration comes from environment variables. Secrets are never committed;
 | `COOKIE_SECURE` | `true` | set `false` only for plain-http local dev in browsers other than Chrome |
 | `FORWARD_HEADERS_STRATEGY` | `none` | set `framework` behind a TLS-terminating proxy (Cloud Run, Caddy, nginx, tunnels) |
 | `SPRING_PROFILES_ACTIVE` | | `local` is used by `./mvnw spring-boot:run` |
+| `JOBS_IN_APP_SCHEDULE` | `true` | in-app timers for the retention purge (03:30 Europe/Bucharest) and auto-close (every minute). Set `false` on Cloud Run, where Cloud Scheduler triggers them |
+| `JOBS_TRIGGER_SERVICE_ACCOUNT` | *(empty = disabled)* | the Google service account whose OIDC token may call `POST /internal/jobs/daily` (Cloud Scheduler) |
+| `JOBS_TRIGGER_AUDIENCE` | `{PUBLIC_BASE_URL}/internal/jobs/daily` | the exact token audience that endpoint accepts |
 
 Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits and retention. Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
 
@@ -205,7 +208,9 @@ gcloud builds submit --region "$REGION" --tag "$IMAGE" .
 gcloud run deploy qr-attendance --image "$IMAGE" --region "$REGION"
 ```
 
-Known gaps: the in-app scheduled jobs (including the GDPR retention purge) don't run while Cloud Run is scaled to zero (#26). The first request after an idle period has a cold start of ~17 s (#28).
+Known gaps: the first request after an idle period has a cold start of ~17 s (#28).
+
+**Scheduled jobs.** Cloud Run scales to zero, so in-app timers can't be relied on there. Instead, once the one-time setup has run, **Cloud Scheduler** calls `POST /internal/jobs/daily` every night at 03:30 Europe/Bucharest. That call runs the GDPR retention purge and the auto-close of expired sessions. The endpoint accepts only a Google-signed OIDC token of one dedicated service account, for that exact URL. On docker compose or a VPS the in-app timers do the same, with no setup. Details, security and the one-time setup script: [docs/deployment.md](docs/deployment.md#scheduled-jobs-cloud-scheduler).
 
 For other hosts (Oracle Cloud Always Free, a cheap EU VPS with Caddy, university hosting) and the GDPR checklist, see [docs/deployment.md](docs/deployment.md).
 
@@ -228,5 +233,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #26 scheduled jobs (retention purge, auto-close) on Cloud Run · #27 continuous deployment to Cloud Run · #28 cold start · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
+- **Operations:** #27 continuous deployment to Cloud Run · #28 cold start · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
 - **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
