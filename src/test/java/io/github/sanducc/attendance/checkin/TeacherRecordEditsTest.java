@@ -2,12 +2,14 @@ package io.github.sanducc.attendance.checkin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -461,6 +463,43 @@ class TeacherRecordEditsTest extends IntegrationTestSupport {
 
         assertThat(findStudent("sub-ana").orElseThrow().getFirstName()).isEqualTo("Ana");
         assertThat(recordRepository.count()).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------ security headers (#41)
+
+    /**
+     * The dialogs and their calls only use same-origin, non-inline resources, so they work under the CSP, COOP
+     * same-origin, COEP require-corp, CORP same-origin and the Permissions-Policy (no feature they need is denied).
+     */
+    @Test
+    void displayPageDialogsWorkUnderTheSecurityHeaders() throws Exception {
+        Fixture f = openFixture();
+        AttendanceRecord record = insertRecord(f.sessionId(), insertStudent("sub-ana", "Ana", "Popescu"));
+
+        String html = mvc.perform(get("/sessions/{id}/display", f.sessionId()).with(owner(f)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cross-Origin-Opener-Policy", "same-origin"))
+                .andExpect(header().string("Cross-Origin-Embedder-Policy", "require-corp"))
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"))
+                .andExpect(header().exists("Permissions-Policy"))
+                .andExpect(header().string("Content-Security-Policy", containsString("script-src 'self'")))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).contains("id=\"add-dialog\"", "id=\"edit-dialog\"", "id=\"add-entry-btn\"",
+                "src=\"/js/display.js\"", "name=\"_csrf\"");
+        assertThat(html).as("no inline script, style or handler (CSP)")
+                .doesNotContainPattern("<script(?![^>]*\\ssrc=)[^>]*>")
+                .doesNotContain("<style", " style=\"", " onclick=", " onsubmit=");
+        assertThat(html).as("no cross-origin resource (COEP require-corp)").doesNotContainPattern("(src|href)=\"https?://");
+
+        mvc.perform(get("/js/display.js"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"));
+        mvc.perform(get("/sessions/{id}/students", f.sessionId()).with(owner(f)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"));
+        rename(f, record.getId(), "Ana", "Popa")
+                .andExpect(status().isNoContent())
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"));
     }
 
     // ------------------------------------------------------------------ helpers

@@ -1,0 +1,16 @@
+# ZAP baseline rules for .github/workflows/dast.yml (issue #12). Tab-separated: <rule id> <TAB> <level> <TAB> <text>.
+# Levels: IGNORE (accepted, also left out of the GitHub issue), INFO, WARN (default), FAIL; OUTOFSCOPE excludes URLs.
+# Every IGNORE / OUTOFSCOPE needs a "#" line above it saying why. Real header/cookie issues get fixed in the app,
+# not silenced here. Triaged against production on 2026-10-17 (ZAP 2.17.0).
+
+# Spider exclusion (all rules): the "Sign in with Google" link starts an OAuth login, which creates an HTTP session in
+# Redis and redirects to accounts.google.com (a third-party host we must not scan).
+*	OUTOFSCOPE	^https?://[^/]+/oauth2/.*$
+
+# Informational. Intended: Spring Security sends "Cache-Control: no-store" so pages with names, QR tokens or
+# attendance never land in a shared or browser cache. The PWA service worker caches the static assets instead.
+10049	IGNORE	(Non-Storable Content)
+
+# Informational. Only detects our own SESSION and device_id cookies; their flags (HttpOnly, Secure, SameSite) are
+# checked by rules 10010, 10011 and 10054, which stay on.
+10112	IGNORE	(Session Management Response Identified)
