@@ -9,21 +9,20 @@ name: DAST (ZAP baseline)
 #   the Google sign-in link is out of scope (.zap/rules.tsv), so ZAP doesn't follow it to accounts.google.com.
 # - Not on pull requests: they have no deployed preview. Runs weekly, after each successful deploy and by hand
 #   (Actions > DAST (ZAP baseline) > Run workflow; any branch is fine, it only reads public pages).
-# - Load: ~20-40 GET requests per run, the first may cold-start the instance. Redis (Upstash): a handful of commands
-#   (rate-limit counters of the /a/ landing, one session for pages that redirect to /login), far below the free tier.
+# - Load: ~15-25 GET requests per run (the first run found 15 URLs), at most one cold start. Redis (Upstash): ~10-20
+#   commands (the /a/ landing's rate-limit counters, plus a new HTTP session for each of the ~3 URLs that redirect
+#   to /login): ~0.004% of the 500K/month free plan. See docs/deployment.md, "Upstash command budget".
 # - Results: job summary, the report artifact (HTML / JSON / Markdown) and, for runs on master, one GitHub issue
 #   "ZAP baseline report (production)" that the action opens, updates and closes when everything is resolved.
 #   Accepted findings: .zap/rules.tsv, each with its reason. Triage: CONTRIBUTING.md, "DAST".
 on:
   schedule:
-    - cron: "17 4 * * 1"  # Mondays 04:17 UTC (07:17 Bucharest summer time): after Dependabot, before classes
+    - cron: "17 4 * * 1"  # Mondays 04:17 UTC (Bucharest 07:17 summer / 06:17 winter): after Dependabot, before classes
   workflow_run:
     workflows: [deploy]
     types: [completed]
     branches: [master]
   workflow_dispatch:
-  push:  # TEMPORARY: registers the new workflow so it can be dispatched from this branch; removed before review
-    branches: [feature/zap-baseline-dast]
 
 permissions:
   contents: read
@@ -39,8 +38,9 @@ concurrency:
 
 env:
   TARGET_URL: ${{ vars.DAST_TARGET_URL || 'https://qr-attendance-1057355191791.europe-west1.run.app' }}
-  # A random session id: the scan landing answers "Session not found" (404), so ZAP also sees the student page
-  # template and the device_id cookie without any real session or QR token.
+  # A made-up session id: the scan landing answers "Session not found" (404), so ZAP also sees the student page
+  # template and the device_id cookie without any real session or QR token. ZAP requests it before spidering from
+  # the root, and logs "status code returned : 404 expected 200" for it; that warning is expected.
   LANDING_PATH: /a/00000000-0000-0000-0000-000000000000
   ARTIFACT_NAME: zap-baseline-report
 
