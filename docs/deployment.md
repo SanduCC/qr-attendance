@@ -97,7 +97,7 @@ Balancing", or a direct `run.app` call would get its client-written entry counte
 `Client IP from 2 X-Forwarded-For entries on 1 line(s), 1 trusted hop(s); Forwarded has 2 for= entries, its trusted
 entry matches`. "matches" means Cloud Run's own `Forwarded` header names the same client, i.e. the hop count is right.
 It's off by default; to look once, set
-`LOGGING_LEVEL_IO_GITHUB_SANDUCC_ATTENDANCE_COMMON_FORWARDEDCLIENTIP=DEBUG` on the service (a new revision), make a
+`LOGGING_LEVEL_IO_GITHUB_SANDUCC_ATTENDANCE_CLIENTIP=DEBUG` on the service (a new revision), make a
 request, read the log, then remove the variable again.
 
 ### Cold start

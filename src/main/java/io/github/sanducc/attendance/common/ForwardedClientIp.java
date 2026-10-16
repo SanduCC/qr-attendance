@@ -34,7 +34,8 @@ public final class ForwardedClientIp {
 
     public static final String X_FORWARDED_FOR = "X-Forwarded-For";
 
-    private static final Logger log = LoggerFactory.getLogger(ForwardedClientIp.class);
+    /** Lower case, so an env var can switch it on: LOGGING_LEVEL_IO_GITHUB_SANDUCC_ATTENDANCE_CLIENTIP=DEBUG. */
+    private static final Logger log = LoggerFactory.getLogger("io.github.sanducc.attendance.clientip");
     private static final Pattern FORWARDED_FOR = Pattern.compile("(?i)(?:^|;)\\s*for=\\s*\"?([^;\"]+)\"?");
     private static final int MAX_ENTRY_LENGTH = 64;
 
