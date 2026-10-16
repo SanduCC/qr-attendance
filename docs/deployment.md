@@ -32,10 +32,10 @@ Serverless container plus managed free-tier databases, all in EU regions.
 
 ### Caveats
 
-- **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot — several seconds. In practice the teacher opening the display page warms the instance before students scan. `--cpu-boost` helps; `--min-instances=1` removes cold starts but is billed while idle.
+- **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot — about 17 s with 512 MiB, 1 vCPU and CPU boost (#28). In practice the teacher opening the display page warms the instance before students scan. `--cpu-boost` helps; `--min-instances=1` removes cold starts but is billed while idle.
 - **Keep `--max-instances=1`.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state) live in memory. With several instances a student could land on an instance that doesn't know their session. Scaling out requires adding Spring Session with Redis first.
-- **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so scheduled jobs (e.g. the daily retention purge) only run while an instance is alive. Either accept that it runs on the next active day, or trigger it with Cloud Scheduler.
-- **Live updates.** Cloud Run closes requests after the configured timeout (default 5 min, max 60 min). SSE clients reconnect automatically; polling is unaffected.
+- **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so scheduled jobs (e.g. the daily retention purge) only run while an instance is alive. For the GDPR retention purge, "next active day" may be weeks away, so trigger it with Cloud Scheduler (#26).
+- **Live updates.** The projector page polls every 3 s, so Cloud Run's request timeout (default 5 min, max 60 min) doesn't affect it. If the live table moves to SSE (#6), clients will have to reconnect after each timeout.
 - `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS).
 - `PUBLIC_BASE_URL` = the `https://<service>-<hash>.<region>.run.app` URL or your custom domain.
 
@@ -46,7 +46,7 @@ PROJECT=my-gcp-project
 REGION=europe-central2            # or europe-west1
 gcloud config set project "$PROJECT"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com secretmanager.googleapis.com
+  artifactregistry.googleapis.com secretmanager.googleapis.com iam.googleapis.com
 
 # Secrets in Secret Manager (stored in the EU region only)
 for s in qr-hmac-secret hash-pepper; do
@@ -60,8 +60,10 @@ printf '%s' 'NEON-DB-PASSWORD'      | gcloud secrets create database-password \
 printf '%s' 'rediss://default:PASSWORD@NAME.upstash.io:6379' | gcloud secrets create redis-url \
   --replication-policy=user-managed --locations="$REGION" --data-file=-
 
-# Let the Cloud Run runtime service account read them
-SA="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+# A dedicated runtime service account that can read these five secrets and nothing else
+# (the default compute service account has broad project roles)
+gcloud iam service-accounts create qr-attendance-run --display-name="qr-attendance runtime"
+SA="qr-attendance-run@$PROJECT.iam.gserviceaccount.com"
 for s in qr-hmac-secret hash-pepper google-client-secret database-password redis-url; do
   gcloud secrets add-iam-policy-binding "$s" --member="serviceAccount:$SA" \
     --role=roles/secretmanager.secretAccessor
@@ -88,6 +90,7 @@ gcloud run deploy qr-attendance \
   --source . \
   --region "$REGION" \
   --allow-unauthenticated \
+  --service-account "$SA" \
   --max-instances 1 \
   --cpu 1 --memory 1Gi --cpu-boost \
   --env-vars-file cloudrun.env.yaml \
@@ -101,7 +104,7 @@ gcloud artifacts repositories create qr-attendance --repository-format=docker --
 IMAGE="$REGION-docker.pkg.dev/$PROJECT/qr-attendance/app:$(date +%Y%m%d-%H%M)"
 gcloud builds submit --tag "$IMAGE" .
 gcloud run deploy qr-attendance --image "$IMAGE" --region "$REGION" \
-  --allow-unauthenticated --max-instances 1 --cpu 1 --memory 1Gi --cpu-boost \
+  --allow-unauthenticated --service-account "$SA" --max-instances 1 --cpu 1 --memory 1Gi --cpu-boost \
   --env-vars-file cloudrun.env.yaml \
   --set-secrets "QR_HMAC_SECRET=qr-hmac-secret:latest,HASH_PEPPER=hash-pepper:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest,DATABASE_PASSWORD=database-password:latest,REDIS_URL=redis-url:latest"
 ```
@@ -113,7 +116,7 @@ URL="$(gcloud run services describe qr-attendance --region "$REGION" --format='v
 gcloud run services update qr-attendance --region "$REGION" --update-env-vars "PUBLIC_BASE_URL=$URL"
 ```
 
-Then add `$URL/login/oauth2/code/google` to the Google OAuth client. Old images in Artifact Registry count against its free storage — delete them or add a cleanup policy.
+Then add `$URL/login/oauth2/code/google` to the Google OAuth client. Later deploys only need `--image` (or `--source`) and `--region`: the env vars, secrets and service account stay on the service. Old images in Artifact Registry count against its free storage — delete them or add a cleanup policy.
 
 ---
 
