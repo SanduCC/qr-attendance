@@ -355,8 +355,10 @@ cat > cleanup-policy.json <<'EOF'
 ]
 EOF
 gcloud artifacts repositories set-cleanup-policies qr-attendance --project "$PROJECT" --location "$REGION" \
-  --policy cleanup-policy.json --overwrite
+  --policy cleanup-policy.json
 ```
+
+`set-cleanup-policies` replaces the repository's whole policy set (there is no `--overwrite` flag in current gcloud).
 
 #### Rollback
 
@@ -375,8 +377,10 @@ a manual `gcloud run deploy` won't get traffic until you run
 itself after its smoke test.
 To deploy an older commit instead, revert it on `master` through a PR (the workflow refuses to deploy older commits).
 
-**Deploys end users' sessions.** HTTP sessions (logins, a scanned QR token) are in memory, so after the traffic
-switch everyone signs in again, including the teacher's projector page. Avoid merging app changes during a class.
+**Deploys keep users signed in.** HTTP sessions (logins, a scanned QR token) live in Redis since #36, so a deploy
+doesn't sign anyone out, and the teacher's projector page keeps running. Only a change to Spring Security's
+serialized classes (e.g. the Boot 4 upgrade, #1) makes everyone sign in once; unreadable sessions are dropped, never
+a 500.
 
 ### Scheduled jobs (Cloud Scheduler)
 

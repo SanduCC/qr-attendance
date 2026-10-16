@@ -208,7 +208,7 @@ gcloud builds submit --region "$REGION" --tag "$IMAGE" .
 gcloud run deploy qr-attendance --image "$IMAGE" --region "$REGION"
 ```
 
-Known gaps: the first request after an idle period waits for a cold start. It used to take ~17 s; the image now ships a JDK 25 AOT cache and starts with C1 only, which cut startup by ~75% in CI (19.5 → 4.2 s on 1 vCPU). Production numbers follow after the deploy ([details](docs/deployment.md#cold-start), #28).
+Known gaps: the first request after an idle period waits for a cold start. It used to take ~17 s; the image now ships a JDK 25 AOT cache and starts with C1 only, which cut startup by ~75% in CI (19.5 → 4.2 s on 1 vCPU). In production (1 vCPU, 512 MiB) Spring now starts in ~5.7 s instead of 18–20 s, about 9 s including the JVM ([details](docs/deployment.md#cold-start), #28).
 
 **Scheduled jobs.** Cloud Run scales to zero, so in-app timers can't be relied on there. Instead, once the one-time setup has run, **Cloud Scheduler** calls `POST /internal/jobs/daily` every night at 03:30 Europe/Bucharest. That call runs the GDPR retention purge and the auto-close of expired sessions. The endpoint accepts only a Google-signed OIDC token of one dedicated service account, for that exact URL. On docker compose or a VPS the in-app timers do the same, with no setup. Details, security and the one-time setup script: [docs/deployment.md](docs/deployment.md#scheduled-jobs-cloud-scheduler).
 
@@ -233,5 +233,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #27 continuous deployment to Cloud Run · #28 cold start · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
+- **Operations:** #39 trust only the proxy's `X-Forwarded-For` entry for client IPs · #31 custom domain · #12 DAST scan of the deployed app (OWASP ZAP) · #1 upgrade to Spring Boot 4.x
 - **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
