@@ -2,18 +2,19 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head(${'Check in: ' + courseName})}"></head>
 <body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
 <main class="container">
-    <p class="eyebrow">Check in</p>
-    <h1 th:text="${courseName}">Course name</h1>
-
     <form class="card" method="post" th:action="@{/a/{id}/check-in(id=${sessionId})}" th:object="${nameForm}">
+        <p class="eyebrow">Check in</p>
+        <h1 th:text="${courseName}">Course name</h1>
+
         <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
             <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
         </div>
 
         <th:block th:unless="${registered}">
-            <h2>Confirm your name</h2>
-            <p class="muted">This is how your teacher will see you. You can only set it once.</p>
+            <h2 class="card-title">Confirm your name</h2>
+            <p class="muted small">This is how your teacher will see you. You can only set it once.</p>
 
             <div class="field">
                 <label for="firstName">First name</label>

@@ -1,4 +1,5 @@
-// Projector page: rotating QR code + live attendance table. No inline scripts (CSP).
+// Projector page: rotating QR code, live attendance table, "Closes in mm:ss" countdown and a fullscreen toggle.
+// No inline scripts (CSP). Student names only ever reach the page through textContent.
 (function () {
   'use strict';
 
@@ -21,24 +22,37 @@
     qr: $('qr'),
     qrUrl: $('qr-url'),
     closesAt: $('closes-at'),
+    countdownWrap: $('countdown-wrap'),
+    countdown: $('countdown'),
     count: $('count'),
     expectedWrap: $('expected-wrap'),
     expected: $('expected'),
+    finalCount: $('final-count'),
+    finalExpectedWrap: $('final-expected-wrap'),
+    finalExpected: $('final-expected'),
     over: $('over-warning'),
     conn: $('conn'),
     signedOut: $('signed-out'),
     closeForm: $('close-form'),
+    fullscreenBtn: $('fullscreen-btn'),
     records: $('records'),
   };
 
   const RECORDS_INTERVAL_MS = 3000;
   const RETRY_MS = 3000;
+  const SOON_MS = 60000;
 
   let open = body.dataset.open !== 'false';
   let stopped = false; // set once signed out
   let qrTimer = null;
   let recordsTimer = null;
+  let countdownTimer = null;
   let lastRecordsKey = null;
+  let closesAtMillis = Number(body.dataset.closesAtMillis);
+  // Server clock minus local clock, so the countdown follows the server whatever the laptop's clock says.
+  let clockOffset = Number(body.dataset.serverTimeMillis) - Date.now();
+  if (!Number.isFinite(clockOffset)) clockOffset = 0;
+  let closingPoked = false;
   const failing = { qr: false, records: false };
 
   class AuthError extends Error {}
@@ -54,12 +68,18 @@
   }
 
   async function getJson(url) {
+    const sentAt = Date.now();
     const res = await request(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const type = res.headers.get('Content-Type') || '';
     // A 200 HTML page here means we were bounced to a login page.
     if (!type.includes('json')) throw new AuthError();
-    return res.json();
+    const data = await res.json();
+    if (data && Number.isFinite(data.serverTimeMillis)) {
+      // Assume the server stamped the response halfway through the round trip.
+      clockOffset = data.serverTimeMillis - (sentAt + Date.now()) / 2;
+    }
+    return data;
   }
 
   function setFailing(which, value) {
@@ -71,6 +91,7 @@
     stopped = true;
     clearTimeout(qrTimer);
     clearTimeout(recordsTimer);
+    stopCountdown();
     el.conn.hidden = true;
     el.signedOut.hidden = false;
   }
@@ -113,6 +134,8 @@
   function showClosed() {
     open = false;
     clearTimeout(qrTimer);
+    stopCountdown();
+    if (el.countdownWrap) el.countdownWrap.hidden = true;
     el.qr.textContent = '';
     el.qrUrl.textContent = '';
     el.qrLive.hidden = true;
@@ -153,6 +176,16 @@
     }
     el.over.hidden = !data.overHeadcount;
     if (data.closesAt && el.closesAt) el.closesAt.textContent = data.closesAt;
+    if (el.finalCount) el.finalCount.textContent = el.count.textContent;
+    if (el.finalExpectedWrap) {
+      el.finalExpectedWrap.hidden = el.expectedWrap.hidden;
+      el.finalExpected.textContent = el.expected.textContent;
+    }
+    if (Number.isFinite(data.closesAtMillis) && data.closesAtMillis !== closesAtMillis) {
+      closesAtMillis = data.closesAtMillis;
+      closingPoked = false;
+    }
+    tick();
 
     const records = Array.isArray(data.records) ? data.records : [];
     const key = JSON.stringify(records);
@@ -223,6 +256,72 @@
     }
   }
 
+  // ---- Countdown -----------------------------------------------------------
+
+  function pad(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  function formatLeft(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return (h > 0 ? h + ':' + pad(m) : pad(m)) + ':' + pad(s);
+  }
+
+  function tick() {
+    if (!el.countdown || !open || stopped || !Number.isFinite(closesAtMillis)) return;
+    const left = closesAtMillis - (Date.now() + clockOffset);
+    const text = formatLeft(left);
+    if (el.countdown.textContent !== text) el.countdown.textContent = text;
+    el.countdownWrap.classList.toggle('is-soon', left <= SOON_MS);
+    if (left <= 0 && !closingPoked) {
+      // Time's up: ask the server now instead of waiting for the next poll.
+      closingPoked = true;
+      scheduleRecords(500);
+    }
+  }
+
+  function startCountdown() {
+    stopCountdown();
+    tick();
+    countdownTimer = setInterval(tick, 250);
+  }
+
+  function stopCountdown() {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+
+  // ---- Fullscreen (button stays hidden where the API is missing, e.g. iPhone Safari) ---------------
+
+  const root = document.documentElement;
+  const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+
+  function updateFullscreenLabel() {
+    el.fullscreenBtn.textContent = fullscreenElement() ? 'Exit fullscreen' : 'Fullscreen';
+  }
+
+  if (el.fullscreenBtn && (document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
+    el.fullscreenBtn.hidden = false;
+    el.fullscreenBtn.addEventListener('click', () => {
+      try {
+        let result;
+        if (fullscreenElement()) {
+          result = (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        } else {
+          result = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+        }
+        if (result && typeof result.catch === 'function') result.catch(() => {});
+      } catch (e) {
+        // Refused by the browser: nothing to do, the page works the same without fullscreen.
+      }
+    });
+    document.addEventListener('fullscreenchange', updateFullscreenLabel);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenLabel);
+  }
+
   // ---- Close session -------------------------------------------------------
 
   if (el.closeForm) {
@@ -237,6 +336,7 @@
 
   if (open) {
     loadQr();
+    startCountdown();
   } else {
     showClosed();
   }

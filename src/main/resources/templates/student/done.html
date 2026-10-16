@@ -2,20 +2,21 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head(${justCheckedIn ? 'Checked in' : 'Already checked in'})}"></head>
 <body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
 <main class="container">
-    <div class="card center" th:if="${justCheckedIn}">
+    <div class="card center" role="status">
         <div class="success-mark" aria-hidden="true"></div>
-        <h1>You're checked in</h1>
-        <p class="name-display" th:text="${firstName + ' ' + lastName}">Ana Popescu</p>
-        <p th:text="${courseName}">Course name</p>
-        <p class="lead" th:text="${'at ' + checkedInAt}">at 09:02</p>
-    </div>
-
-    <div class="card center" th:unless="${justCheckedIn}">
-        <div class="success-mark" aria-hidden="true"></div>
-        <h1 th:text="${'Already checked in at ' + checkedInAt}">Already checked in at 09:02</h1>
-        <p class="name-display" th:text="${firstName + ' ' + lastName}">Ana Popescu</p>
-        <p th:text="${courseName}">Course name</p>
+        <th:block th:if="${justCheckedIn}">
+            <h1>You're checked in</h1>
+            <p class="name-display" th:text="${firstName + ' ' + lastName}">Ana Popescu</p>
+            <p class="muted" th:text="${courseName}">Course name</p>
+            <p><span class="time-chip" th:text="${'at ' + checkedInAt}">at 09:02</span></p>
+        </th:block>
+        <th:block th:unless="${justCheckedIn}">
+            <h1 th:text="${'Already checked in at ' + checkedInAt}">Already checked in at 09:02</h1>
+            <p class="name-display" th:text="${firstName + ' ' + lastName}">Ana Popescu</p>
+            <p class="muted" th:text="${courseName}">Course name</p>
+        </th:block>
     </div>
 
     <p class="muted center">You can close this page.</p>

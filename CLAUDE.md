@@ -34,7 +34,7 @@ AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_h
 1. Log in (Google OAuth). The teacher role comes only from the admin-managed teacher list (`/admin/teachers`);
    admins come from `ADMIN_EMAILS` (config only) and are teachers too. Nobody gets a role by signing in.
    Deactivated teachers lose access immediately; their courses and attendance are kept.
-2. Create or select a course → "Start session" (default duration 15 min, configurable).
+2. Create a course (name, optional code) → one-click "Start attendance" on its card (default duration 15 min, configurable; expected headcount reused from the course's last session; both adjustable under "Options").
 3. Display page (`/sessions/{id}/display`) shows a **rotating QR code** plus a live counter: "23 checked in / expected 25".
 4. Live attendance table on the same page (via SSE or 3s polling); the teacher can remove a suspicious entry.
 5. Close the session manually or let it expire. Export CSV.

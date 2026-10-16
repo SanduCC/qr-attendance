@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
@@ -26,11 +27,13 @@ import io.github.sanducc.attendance.checkin.AttendanceRecord;
 import io.github.sanducc.attendance.checkin.AttendanceRecordService;
 import io.github.sanducc.attendance.checkin.Student;
 import io.github.sanducc.attendance.common.NotFoundException;
+import io.github.sanducc.attendance.config.AttendanceProperties;
 import io.github.sanducc.attendance.session.AttendanceSession;
 import io.github.sanducc.attendance.session.SessionStatus;
 import io.github.sanducc.attendance.support.IntegrationTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,6 +52,7 @@ class TeacherAccessTest extends IntegrationTestSupport {
     private static final String PROF_B = "prof.b@university.example.ro";
 
     @Autowired AttendanceRecordService recordService;
+    @Autowired AttendanceProperties properties;
 
     private RequestPostProcessor profA() {
         return teacherLogin(PROF_A);
@@ -113,9 +117,10 @@ class TeacherAccessTest extends IntegrationTestSupport {
         MvcResult created = mvc.perform(post("/teacher/courses").with(csrf()).with(profA())
                         .param("name", "  Structuri de date ").param("code", "SD-2026"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("/teacher/courses/*"))
+                .andExpect(redirectedUrlPattern("/teacher/courses#course-*"))
+                .andExpect(flash().attribute("message", "Course created"))
                 .andReturn();
-        long courseId = lastPathSegmentAsLong(created.getResponse().getRedirectedUrl());
+        long courseId = createdCourseId(created);
         Course course = courseService.getOwnedCourse(teacherId(PROF_A), courseId);
         assertThat(course.getName()).isEqualTo("Structuri de date");
         assertThat(course.getCode()).isEqualTo("SD-2026");
@@ -192,25 +197,175 @@ class TeacherAccessTest extends IntegrationTestSupport {
         assertThat(courseService.listCourses(teacherId)).hasSize(1);
     }
 
-    /** Regression (#19): the code is required, so the form must not present it as optional. */
+    /**
+     * #30 reverses #19 at the owner's request: a name is enough, the code is optional (blank is stored as null), and
+     * the form says so. Creating a course stays on the courses page, with a flash and the new card highlighted.
+     */
     @Test
-    void courseCodeIsRequiredAndTheFormSaysSo() throws Exception {
-        createTeacher(PROF_A);
+    void courseCodeIsOptionalButTheNameIsRequired() throws Exception {
+        long teacherId = createTeacher(PROF_A).getId();
 
-        mvc.perform(post("/teacher/courses").with(csrf()).with(profA()).param("name", "Algoritmi").param("code", " "))
+        MvcResult created = mvc.perform(post("/teacher/courses").with(csrf()).with(profA())
+                        .param("name", "Algoritmi").param("code", "  "))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("/teacher/courses#course-*"))
+                .andExpect(flash().attribute("message", "Course created"))
+                .andExpect(flash().attributeExists("createdCourseId"))
+                .andReturn();
+        long courseId = createdCourseId(created);
+        Course course = courseService.getOwnedCourse(teacherId, courseId);
+        assertThat(course.getName()).isEqualTo("Algoritmi");
+        assertThat(course.getCode()).isNull();
+
+        mvc.perform(post("/teacher/courses").with(csrf()).with(profA()).param("name", "Baze de date"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("/teacher/courses#course-*"));
+
+        mvc.perform(post("/teacher/courses").with(csrf()).with(profA()).param("name", " ").param("code", "CS101"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("teacher/courses"))
+                .andExpect(model().attributeHasFieldErrors("courseForm", "name"))
+                .andExpect(model().attribute("showNewCourse", true));
+        mvc.perform(post("/teacher/courses").with(csrf()).with(profA())
+                        .param("name", "Algoritmi 2").param("code", "X".repeat(51)))
+                .andExpect(status().isOk())
                 .andExpect(model().attributeHasFieldErrors("courseForm", "code"));
+        assertThat(courseService.listCourses(teacherId)).hasSize(2);
 
-        String html = mvc.perform(get("/teacher/courses").with(profA()))
+        // The page after the redirect: flash banner, highlighted card, a course without a code renders fine.
+        String html = mvc.perform(get("/teacher/courses").with(profA())
+                        .flashAttr("message", "Course created").flashAttr("createdCourseId", courseId))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertThat(html).doesNotContain("(optional)");
+        assertThat(html).contains("Course created", "id=\"course-" + courseId + "\"", "is-new", "No sessions yet");
         // Thymeleaf writes id/name/value after the static attributes, so match the tag regardless of order.
-        Matcher codeInput = Pattern.compile("<input[^>]*\\bname=\"code\"[^>]*>")
-                .matcher(html);
-        assertThat(codeInput.find()).as("code input rendered").isTrue();
-        assertThat(codeInput.group()).containsPattern("\\srequired[\\s>=/]");
+        assertThat(inputTag(html, "name")).containsPattern("\\srequired[\\s>=/]");
+        assertThat(inputTag(html, "code")).doesNotContainPattern("\\srequired[\\s>=/]");
+        assertThat(html).contains("(optional)");
+
+        mvc.perform(get("/teacher/courses/{id}", courseId).with(profA()))
+                .andExpect(status().isOk())
+                .andExpect(view().name("teacher/course"));
+    }
+
+    // ------------------------------------------------------------------ one-click start (#30)
+
+    @Test
+    void oneClickStartUsesTheDefaultDurationAndTheCoursesLastExpectedHeadcount() throws Exception {
+        long teacherId = createTeacher(PROF_A).getId();
+        long courseId = courseService.createCourse(teacherId, "Algoritmi", null).getId();
+        Duration defaultDuration = properties.session().defaultDuration();
+
+        // No earlier session: no expected headcount.
+        AttendanceSession first = sessionRepository.findById(startOneClick(courseId)).orElseThrow();
+        assertThat(first.getExpectedHeadcount()).isNull();
+        assertThat(first.getClosesAt()).isEqualTo(first.getOpenedAt().plus(defaultDuration));
+
+        // With options: exactly what the teacher entered.
+        clock.advance(Duration.ofDays(1));
+        AttendanceSession withOptions = sessionRepository.findById(start(courseId, "20", "25")).orElseThrow();
+        assertThat(withOptions.getExpectedHeadcount()).isEqualTo(25);
+        assertThat(withOptions.getClosesAt()).isEqualTo(clock.instant().plus(Duration.ofMinutes(20)));
+
+        // One click again: default duration, the last session's headcount.
+        clock.advance(Duration.ofDays(1));
+        AttendanceSession again = sessionRepository.findById(startOneClick(courseId)).orElseThrow();
+        assertThat(again.getExpectedHeadcount()).isEqualTo(25);
+        assertThat(again.getClosesAt()).isEqualTo(clock.instant().plus(defaultDuration));
+
+        // Clearing the field in the options means "no headcount", not "same as last time"...
+        clock.advance(Duration.ofDays(1));
+        AttendanceSession cleared = sessionRepository.findById(start(courseId, "30", "")).orElseThrow();
+        assertThat(cleared.getExpectedHeadcount()).isNull();
+        assertThat(cleared.getClosesAt()).isEqualTo(clock.instant().plus(Duration.ofMinutes(30)));
+
+        // ...and the next one-click start follows that most recent session.
+        clock.advance(Duration.ofDays(1));
+        assertThat(sessionRepository.findById(startOneClick(courseId)).orElseThrow().getExpectedHeadcount()).isNull();
+
+        // The course page pre-fills the options with those defaults.
+        mvc.perform(get("/teacher/courses/{id}", courseId).with(profA()))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("sessions", hasSize(5)))
+                .andExpect(model().attribute("lastExpectedHeadcount", nullValue()))
+                .andExpect(model().attribute("showOptions", false));
+    }
+
+    @Test
+    void startWithOptionsStillValidatesTheDuration() throws Exception {
+        long teacherId = createTeacher(PROF_A).getId();
+        long courseId = courseService.createCourse(teacherId, "Algoritmi", "CS101").getId();
+        long maxMinutes = properties.session().maxDuration().toMinutes();
+
+        for (String bad : new String[] {"0", "-5", String.valueOf(maxMinutes + 1)}) {
+            mvc.perform(post("/teacher/courses/{id}/sessions", courseId).with(csrf()).with(profA())
+                            .param("durationMinutes", bad).param("headcountExplicit", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(view().name("teacher/course"))
+                    .andExpect(model().attributeHasFieldErrors("openForm", "durationMinutes"))
+                    .andExpect(model().attribute("showOptions", true));
+        }
+        mvc.perform(post("/teacher/courses/{id}/sessions", courseId).with(csrf()).with(profA())
+                        .param("expectedHeadcount", "0").param("headcountExplicit", "true"))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeHasFieldErrors("openForm", "expectedHeadcount"));
+        assertThat(sessionRepository.count()).isZero();
+
+        mvc.perform(post("/teacher/courses/{id}/sessions", courseId).with(csrf()).with(profA())
+                        .param("durationMinutes", String.valueOf(maxMinutes)).param("headcountExplicit", "true"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("/sessions/*/display"));
+    }
+
+    @Test
+    void coursesPageShowsEachCoursesLastSessionAndTheCoursePageLinksTheExports() throws Exception {
+        long teacherId = createTeacher(PROF_A).getId();
+        long algoritmi = courseService.createCourse(teacherId, "Algoritmi", "CS101").getId();
+        courseService.createCourse(teacherId, "Baze de date", null);
+        Student ana = insertStudent("sub-1", "Ana", "Popescu");
+        Student bogdan = insertStudent("sub-2", "Bogdan", "Ionescu");
+
+        UUID lastWeek = sessionService.openSession(teacherId, algoritmi, 15, 30).getId();
+        insertRecord(lastWeek, ana);
+        clock.advance(Duration.ofDays(7));
+        UUID today = sessionService.openSession(teacherId, algoritmi, 15, 25).getId();
+        insertRecord(today, ana);
+        insertRecord(today, bogdan);
+
+        MvcResult result = mvc.perform(get("/teacher/courses").with(profA()))
+                .andExpect(status().isOk())
+                .andExpect(view().name("teacher/courses"))
+                .andExpect(model().attribute("showNewCourse", false))
+                .andReturn();
+        @SuppressWarnings("unchecked")
+        List<CourseController.CourseCard> cards =
+                (List<CourseController.CourseCard>) result.getModelAndView().getModel().get("courses");
+        assertThat(cards).extracting(CourseController.CourseCard::name).containsExactly("Algoritmi", "Baze de date");
+
+        CourseController.CourseCard withSessions = cards.get(0);
+        assertThat(withSessions.code()).isEqualTo("CS101");
+        assertThat(withSessions.lastSession().id()).isEqualTo(today);
+        assertThat(withSessions.lastSession().checkedIn()).isEqualTo(2);
+        assertThat(withSessions.lastSession().open()).isTrue();
+        assertThat(withSessions.nextExpectedHeadcount()).isEqualTo(25);
+
+        CourseController.CourseCard empty = cards.get(1);
+        assertThat(empty.code()).isNull();
+        assertThat(empty.lastSession()).isNull();
+        assertThat(empty.nextExpectedHeadcount()).isNull();
+
+        String html = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).contains("Start attendance", "No sessions yet", "2 of 25 checked in",
+                "/sessions/" + today + "/display", "/teacher/courses/" + algoritmi + "/sessions");
+
+        String coursePage = mvc.perform(get("/teacher/courses/{id}", algoritmi).with(profA()))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("sessions", hasSize(2)))
+                .andExpect(model().attribute("lastExpectedHeadcount", 25))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(coursePage).contains(
+                "/sessions/" + today + "/export.xlsx", "/sessions/" + today + "/export.csv",
+                "/sessions/" + lastWeek + "/export.xlsx", "/sessions/" + lastWeek + "/display", "1 / 30", "2 / 25");
     }
 
     @Test
@@ -245,7 +400,11 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.records[0].lastName").value("Popescu"))
                 .andExpect(jsonPath("$.records[0].email").value("sub-1@student.example.ro"))
                 .andExpect(jsonPath("$.records[0].checkedInAt").value("09:00:05"))
-                .andExpect(jsonPath("$.records[1].checkedInAt").value("09:00:12"));
+                .andExpect(jsonPath("$.records[1].checkedInAt").value("09:00:12"))
+                // The projector's countdown runs on these (server time, whatever the laptop clock says).
+                .andExpect(jsonPath("$.closesAtMillis")
+                        .value(sessionRepository.findById(f.sessionId()).orElseThrow().getClosesAt().toEpochMilli()))
+                .andExpect(jsonPath("$.serverTimeMillis").value(clock.millis()));
 
         insertRecord(f.sessionId(), insertStudent("sub-3", "Carmen", "Dobre"));
 
@@ -321,11 +480,32 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.open").value(false))
                 .andExpect(jsonPath("$.url").value(nullValue()))
                 .andExpect(jsonPath("$.svg").value(nullValue()));
-        mvc.perform(get("/sessions/{id}/display", f.sessionId()).with(profA()))
+        String display = mvc.perform(get("/sessions/{id}/display", f.sessionId()).with(profA()))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("open", false));
+                .andExpect(model().attribute("open", false))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        // Closed state: no close button, the downloads instead.
+        assertThat(display).doesNotContain("id=\"close-form\"")
+                .contains("Download Excel", "/sessions/" + f.sessionId() + "/export.xlsx");
         mvc.perform(get("/sessions/{id}/records", f.sessionId()).with(profA()))
-                .andExpect(jsonPath("$.open").value(false));
+                .andExpect(jsonPath("$.open").value(false))
+                .andExpect(jsonPath("$.closesAtMillis").value(clock.millis()));
+    }
+
+    @Test
+    void displayPageCarriesTheCountdownStartingPoint() throws Exception {
+        Fixture f = fixtureForProfA(25);
+        AttendanceSession session = sessionRepository.findById(f.sessionId()).orElseThrow();
+        clock.advance(Duration.ofMinutes(3));
+
+        String html = mvc.perform(get("/sessions/{id}/display", f.sessionId()).with(profA()))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("closesAtMillis", session.getClosesAt().toEpochMilli()))
+                .andExpect(model().attribute("serverTimeMillis", clock.millis()))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).contains("data-closes-at-millis=\"" + session.getClosesAt().toEpochMilli() + "\"",
+                "data-server-time-millis=\"" + clock.millis() + "\"", "id=\"close-form\"", "id=\"fullscreen-btn\"",
+                "id=\"countdown\"");
     }
 
     @Test
@@ -377,6 +557,11 @@ class TeacherAccessTest extends IntegrationTestSupport {
         mvc.perform(get("/teacher/courses/{id}", mine.courseId()).with(profB)).andExpect(status().isNotFound());
         mvc.perform(post("/teacher/courses/{id}/sessions", mine.courseId()).with(csrf()).with(profB)
                 .param("durationMinutes", "15")).andExpect(status().isNotFound());
+        // One click (no fields) must not reveal or reuse someone else's course either.
+        mvc.perform(post("/teacher/courses/{id}/sessions", mine.courseId()).with(csrf()).with(profB))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/teacher/courses/{id}/sessions", mine.courseId()).with(csrf()).with(profB)
+                .param("durationMinutes", "0")).andExpect(status().isNotFound());
         mvc.perform(get("/sessions/{id}/display", s).with(profB)).andExpect(status().isNotFound());
         mvc.perform(get("/sessions/{id}/qr-token", s).with(profB)).andExpect(status().isNotFound());
         mvc.perform(get("/sessions/{id}/records", s).with(profB)).andExpect(status().isNotFound());
@@ -411,7 +596,13 @@ class TeacherAccessTest extends IntegrationTestSupport {
                 .isInstanceOf(NotFoundException.class);
         assertThatThrownBy(() -> sessionService.openSession(otherTeacher, mine.courseId(), 15, null))
                 .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> sessionService.startSession(otherTeacher, mine.courseId(), null, null, false))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> sessionService.lastExpectedHeadcount(otherTeacher, mine.courseId()))
+                .isInstanceOf(NotFoundException.class);
         assertThatThrownBy(() -> sessionService.listSessions(otherTeacher, mine.courseId()))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> sessionService.listSessionSummaries(otherTeacher, mine.courseId()))
                 .isInstanceOf(NotFoundException.class);
         assertThatThrownBy(() -> sessionService.getOwnedSession(otherTeacher, s))
                 .isInstanceOf(NotFoundException.class);
@@ -428,6 +619,8 @@ class TeacherAccessTest extends IntegrationTestSupport {
 
         assertThat(recordService.listRecords(mine.teacherId(), s)).hasSize(1);
         assertThat(courseService.listCourses(otherTeacher)).isEmpty();
+        assertThat(sessionService.listCourseSummaries(otherTeacher)).isEmpty();
+        assertThat(sessionService.listCourseSummaries(mine.teacherId())).hasSize(1);
         assertThat(recordRepository.existsById(record.getId())).isTrue();
     }
 
@@ -445,7 +638,38 @@ class TeacherAccessTest extends IntegrationTestSupport {
         return teacherRepository.findByEmail(email).orElseThrow().getId();
     }
 
-    private static long lastPathSegmentAsLong(String url) {
-        return Long.parseLong(url.substring(url.lastIndexOf('/') + 1));
+    /** One click: POST with no fields at all, like the "Start attendance" button. */
+    private UUID startOneClick(long courseId) throws Exception {
+        return sessionIdFrom(mvc.perform(post("/teacher/courses/{id}/sessions", courseId).with(csrf()).with(profA()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("/sessions/*/display"))
+                .andReturn());
+    }
+
+    /** The options form: always sends both fields (possibly empty) plus headcountExplicit. */
+    private UUID start(long courseId, String durationMinutes, String expectedHeadcount) throws Exception {
+        return sessionIdFrom(mvc.perform(post("/teacher/courses/{id}/sessions", courseId).with(csrf()).with(profA())
+                        .param("headcountExplicit", "true")
+                        .param("durationMinutes", durationMinutes)
+                        .param("expectedHeadcount", expectedHeadcount))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("/sessions/*/display"))
+                .andReturn());
+    }
+
+    private static UUID sessionIdFrom(MvcResult result) {
+        return UUID.fromString(result.getResponse().getRedirectedUrl().split("/")[2]);
+    }
+
+    private static long createdCourseId(MvcResult result) {
+        String url = result.getResponse().getRedirectedUrl();
+        return Long.parseLong(url.substring(url.indexOf("#course-") + "#course-".length()));
+    }
+
+    /** The {@code <input>} tag for a field, whatever order Thymeleaf writes the attributes in. */
+    private static String inputTag(String html, String name) {
+        Matcher input = Pattern.compile("<input[^>]*\\bname=\"" + name + "\"[^>]*>").matcher(html);
+        assertThat(input.find()).as(name + " input rendered").isTrue();
+        return input.group();
     }
 }

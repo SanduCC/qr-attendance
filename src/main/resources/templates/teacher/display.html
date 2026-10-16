@@ -6,51 +6,71 @@
     <meta name="_csrf_header" th:content="${_csrf.headerName}">
     <script th:src="@{/js/display.js}" defer></script>
 </head>
-<body class="display" th:data-session-id="${sessionId}" th:data-open="${open}">
-<div class="display-grid">
-    <section class="qr-panel" aria-label="QR code">
-        <h1 class="display-title" th:text="${course.name}">Algorithms</h1>
+<body class="display" th:data-session-id="${sessionId}" th:data-open="${open}"
+      th:data-closes-at-millis="${closesAtMillis}" th:data-server-time-millis="${serverTimeMillis}">
+<main class="display-grid">
+    <section class="qr-panel" aria-labelledby="display-title">
+        <h1 id="display-title" class="display-title" th:text="${course.name}">Algorithms</h1>
+        <p class="display-sub"><span th:text="${openedDay}">Fri 16 Oct 2026</span> ·
+            <span th:text="${opensAt}">09:00</span>–<span id="closes-at" th:text="${closesAt}">09:15</span></p>
 
-        <div id="qr-live" th:hidden="${!open}">
-            <p class="display-sub">Scan with your phone camera</p>
+        <div id="qr-live" class="qr-live" th:hidden="${!open}">
             <div id="qr" class="qr-box" aria-live="off">
                 <p class="qr-loading">Loading QR code…</p>
             </div>
+            <p class="display-sub">Scan with your phone camera to check in</p>
             <p id="qr-url" class="qr-url"></p>
-            <p class="display-sub">Closes at <strong id="closes-at" th:text="${closesAt}">09:15</strong></p>
         </div>
 
         <div id="qr-closed" class="closed-state" th:hidden="${open}">
             <p class="closed-title">Session closed</p>
+            <p class="closed-count"><span id="final-count" class="count">0</span> checked in<span
+                    id="final-expected-wrap" th:hidden="${expectedHeadcount == null}"> <span class="counter-sep">/</span>
+                <span id="final-expected" th:text="${expectedHeadcount}">25</span> expected</span></p>
             <p class="muted">Check-in is no longer possible.</p>
+            <div class="actions-row">
+                <a class="btn btn-primary btn-lg" th:href="@{/sessions/{id}/export.xlsx(id=${sessionId})}">Download Excel</a>
+                <a class="btn btn-lg" th:href="@{/sessions/{id}/export.csv(id=${sessionId})}">Download CSV</a>
+            </div>
+            <p><a th:href="@{/teacher/courses/{id}(id=${course.id})}">Back to course</a></p>
         </div>
     </section>
 
     <section class="side-panel" aria-label="Attendance">
-        <div id="signed-out" class="banner warn" role="alert" hidden>Signed out — reload the page.</div>
+        <div id="signed-out" class="banner warn" role="alert" hidden>
+            <p>Signed out. <a th:href="@{/sessions/{id}/display(id=${sessionId})}">Reload the page</a> to sign in again.</p>
+        </div>
         <div id="conn" class="conn" role="status" hidden>Reconnecting…</div>
 
-        <p class="counter" aria-live="polite">
-            <span id="count" class="count">0</span> checked in<span id="expected-wrap"
-                th:hidden="${expectedHeadcount == null}"> / expected <span id="expected"
-                th:text="${expectedHeadcount}">25</span></span>
-        </p>
+        <div class="stats">
+            <p class="counter" aria-live="polite" aria-atomic="true">
+                <span id="count" class="count">0</span> checked in<span id="expected-wrap"
+                    th:hidden="${expectedHeadcount == null}"> <span class="counter-sep">/</span>
+                <span id="expected" th:text="${expectedHeadcount}">25</span> expected</span>
+            </p>
+            <p id="countdown-wrap" class="countdown" th:hidden="${!open}">
+                Closes in <strong id="countdown" class="countdown-time">--:--</strong>
+            </p>
+        </div>
 
         <div id="over-warning" class="banner warn banner-lg" role="alert" hidden>
-            More check-ins than expected — do a quick headcount
+            <p>More check-ins than expected: do a quick headcount.</p>
         </div>
 
         <div class="controls">
+            <button id="fullscreen-btn" type="button" class="btn" hidden>Fullscreen</button>
             <form id="close-form" th:if="${open}" method="post"
                   th:action="@{/sessions/{id}/close(id=${sessionId})}">
                 <button type="submit" class="btn btn-danger">Close session</button>
             </form>
-            <a class="btn" th:href="@{/sessions/{id}/export.csv(id=${sessionId})}">Export CSV</a>
-            <a class="btn" th:href="@{/teacher/courses/{id}(id=${course.id})}">Back to course</a>
+            <a class="btn" th:href="@{/sessions/{id}/export.xlsx(id=${sessionId})}">Excel</a>
+            <a class="btn" th:href="@{/sessions/{id}/export.csv(id=${sessionId})}">CSV</a>
+            <a class="btn btn-ghost" th:href="@{/teacher/courses/{id}(id=${course.id})}">Back to course</a>
         </div>
 
         <div class="table-wrap">
             <table class="table">
+                <caption class="visually-hidden">Check-ins, oldest first</caption>
                 <thead>
                 <tr>
                     <th scope="col" class="num">#</th>
@@ -68,6 +88,6 @@
             </table>
         </div>
     </section>
-</div>
+</main>
 </body>
 </html>

@@ -1,5 +1,6 @@
 package io.github.sanducc.attendance.checkin;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,6 +15,15 @@ public interface AttendanceRecordRepository extends JpaRepository<AttendanceReco
     boolean existsBySessionIdAndDeviceIdHash(UUID sessionId, String deviceIdHash);
 
     long countBySessionId(UUID sessionId);
+
+    /** Check-in counts for several sessions in one query; sessions without check-ins are absent. */
+    @Query("""
+            select new io.github.sanducc.attendance.checkin.SessionCount(r.sessionId, count(r))
+            from AttendanceRecord r
+            where r.sessionId in :sessionIds
+            group by r.sessionId
+            """)
+    List<SessionCount> countBySessionIds(@Param("sessionIds") Collection<UUID> sessionIds);
 
     Optional<AttendanceRecord> findByIdAndSessionId(Long id, UUID sessionId);
 

@@ -2,62 +2,88 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head(${course.name + ' · QR Attendance'})}"></head>
 <body>
-<header th:replace="~{fragments/layout :: header}"></header>
+<header th:replace="~{fragments/layout :: header('courses')}"></header>
 <main class="container wide">
-    <p class="small"><a th:href="@{/teacher/courses}">&larr; My courses</a></p>
-    <h1>
-        <span th:text="${course.name}">Algorithms</span>
-        <span class="badge" th:if="${course.code != null and !#strings.isEmpty(course.code)}" th:text="${course.code}">CS101</span>
-    </h1>
+    <p class="breadcrumb"><a th:href="@{/teacher/courses}">&larr; My courses</a></p>
+    <div class="page-head">
+        <h1 class="title-row">
+            <span th:text="${course.name}">Algorithms</span>
+            <span class="badge" th:if="${course.code != null}" th:text="${course.code}">CS101</span>
+        </h1>
+    </div>
 
-    <form class="card" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${course.id})}"
-          th:object="${openForm}">
-        <h2>Start session</h2>
-        <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
-            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+    <section class="card start-panel" aria-labelledby="start-title">
+        <div>
+            <h2 id="start-title">New session</h2>
+            <p class="muted small" th:text="${defaultDurationMinutes + ' minutes' + (lastExpectedHeadcount != null
+                    ? ' · ' + lastExpectedHeadcount + ' expected, like last time' : '')}">15 minutes · 25 expected, like last time</p>
         </div>
-        <div class="field-row">
-            <div class="field">
-                <label for="durationMinutes">Duration (minutes)</label>
-                <input type="number" inputmode="numeric" th:field="*{durationMinutes}" th:errorclass="invalid"
-                       min="1" th:max="${maxDurationMinutes}" required>
-                <p class="field-error" th:if="${#fields.hasErrors('durationMinutes')}" th:errors="*{durationMinutes}">Error</p>
-            </div>
-            <div class="field">
-                <label for="expectedHeadcount">Expected students <span class="muted">(optional)</span></label>
-                <input type="number" inputmode="numeric" th:field="*{expectedHeadcount}" th:errorclass="invalid"
-                       min="1">
-                <p class="field-error" th:if="${#fields.hasErrors('expectedHeadcount')}" th:errors="*{expectedHeadcount}">Error</p>
-            </div>
-        </div>
-        <button type="submit" class="btn btn-primary">Start session</button>
-    </form>
+        <form method="post" th:action="@{/teacher/courses/{id}/sessions(id=${course.id})}">
+            <button type="submit" class="btn btn-primary btn-lg btn-block">Start attendance</button>
+        </form>
 
-    <h2>Sessions</h2>
-    <p class="muted empty" th:if="${#lists.isEmpty(sessions)}">No sessions yet.</p>
+        <details class="disclosure" th:open="${showOptions}">
+            <summary>Options</summary>
+            <form class="disclosure-body" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${course.id})}"
+                  th:object="${openForm}">
+                <input type="hidden" name="headcountExplicit" value="true">
+                <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
+                    <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+                </div>
+                <div class="form-grid inline-submit even">
+                    <div class="field">
+                        <label for="durationMinutes">Duration <span class="hint">(minutes)</span></label>
+                        <input type="number" inputmode="numeric" th:field="*{durationMinutes}" th:errorclass="invalid"
+                               min="1" th:max="${maxDurationMinutes}">
+                        <p class="field-error" th:if="${#fields.hasErrors('durationMinutes')}" th:errors="*{durationMinutes}">Error</p>
+                    </div>
+                    <div class="field">
+                        <label for="expectedHeadcount">Expected students <span class="hint">(optional)</span></label>
+                        <input type="number" inputmode="numeric" th:field="*{expectedHeadcount}" th:errorclass="invalid"
+                               min="1" max="5000">
+                        <p class="field-error" th:if="${#fields.hasErrors('expectedHeadcount')}" th:errors="*{expectedHeadcount}">Error</p>
+                    </div>
+                    <div class="field submit">
+                        <button type="submit" class="btn">Start with these options</button>
+                    </div>
+                </div>
+            </form>
+        </details>
+    </section>
+
+    <h2 class="section-title">Sessions</h2>
+    <div class="card empty-state" th:if="${#lists.isEmpty(sessions)}">
+        <strong>No sessions yet</strong>
+        Start attendance above; every session shows up here with its Excel and CSV export.
+    </div>
     <div class="table-wrap" th:unless="${#lists.isEmpty(sessions)}">
-        <table class="table">
+        <table class="table table-stack">
             <thead>
             <tr>
-                <th scope="col">Opened</th>
-                <th scope="col">Closes</th>
+                <th scope="col">Date</th>
+                <th scope="col">Time</th>
                 <th scope="col">Status</th>
                 <th scope="col" class="num">Checked in</th>
-                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                <th scope="col" class="actions"><span class="visually-hidden">Actions</span></th>
             </tr>
             </thead>
             <tbody>
             <tr th:each="s : ${sessions}">
-                <td th:text="${s.openedAt}">16.10.2026 09:00</td>
-                <td th:text="${s.closesAt}">09:15</td>
-                <td>
-                    <span class="badge badge-ok" th:if="${s.open}">Open</span>
+                <td data-label="Date" class="nowrap" th:text="${s.day}">Fri 16 Oct 2026</td>
+                <td data-label="Time" class="nowrap" th:text="${s.opensAt + '–' + s.closesAt}">09:00–09:15</td>
+                <td data-label="Status">
+                    <span class="badge badge-ok badge-live" th:if="${s.open}">Open</span>
                     <span class="badge" th:unless="${s.open}">Closed</span>
                 </td>
-                <td class="num" th:text="${s.checkedIn}">23</td>
+                <td data-label="Checked in" class="num"
+                    th:text="${s.checkedIn + (s.expectedHeadcount != null ? ' / ' + s.expectedHeadcount : '')}">23 / 25</td>
                 <td class="actions">
-                    <a th:href="@{/sessions/{id}/display(id=${s.id})}">Display</a>
-                    <a th:href="@{/sessions/{id}/export.csv(id=${s.id})}">CSV</a>
+                    <a th:href="@{/sessions/{id}/display(id=${s.id})}"
+                       th:aria-label="${'Display session of ' + s.day + ' ' + s.opensAt}">Display</a>
+                    <a th:href="@{/sessions/{id}/export.xlsx(id=${s.id})}"
+                       th:aria-label="${'Excel export of ' + s.day + ' ' + s.opensAt}">Excel</a>
+                    <a th:href="@{/sessions/{id}/export.csv(id=${s.id})}"
+                       th:aria-label="${'CSV export of ' + s.day + ' ' + s.opensAt}">CSV</a>
                 </td>
             </tr>
             </tbody>

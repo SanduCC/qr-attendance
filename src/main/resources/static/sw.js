@@ -2,7 +2,7 @@
 // HTML pages, /a/*, /sessions/*, /login and OAuth are auth-sensitive and token-bound,
 // so they are never intercepted and always go straight to the network.
 // Bump CACHE when shipping changed CSS/JS so clients drop the old copies.
-const CACHE = 'qa-static-v2';
+const CACHE = 'qa-static-v3';
 const PRECACHE = [
   '/css/app.css',
   '/js/sw-register.js',

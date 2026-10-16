@@ -5,45 +5,48 @@
     <script th:src="@{/js/landing.js}" defer></script>
 </head>
 <body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
 <main class="container">
-    <p class="eyebrow">Check in</p>
-    <h1 th:text="${courseName}">Course name</h1>
-
-    <p class="small muted notice">
-        To record your attendance we store your name, email, Google account ID and check-in time.
-        Your IP address and device are kept only as one-way hashes to prevent cheating.
-        <a th:href="@{/privacy}">Privacy notice</a>
-    </p>
-
-    <th:block th:unless="${inAppBrowser.embedded()}">
-        <p>
-            <a class="btn btn-google btn-block btn-lg" th:href="@{/oauth2/authorization/google}">Continue with Google</a>
+    <div class="card">
+        <p class="eyebrow">Check in</p>
+        <h1 th:text="${courseName}">Course name</h1>
+        <p class="notice">
+            To record your attendance we store your name, email, Google account ID and check-in time.
+            Your IP address and device are kept only as one-way hashes to prevent cheating.
+            <a th:href="@{/privacy}">Privacy notice</a>
         </p>
-        <p class="small muted center">You have a few minutes to finish signing in.</p>
-    </th:block>
 
-    <div class="card" th:if="${inAppBrowser.embedded()}">
-        <div class="banner warn" role="alert">Google sign-in doesn't work inside this app's browser.</div>
-
-        <th:block th:if="${inAppBrowser.name() == 'ANDROID'}">
-            <p>Open this page in Chrome to continue.</p>
-            <p><a class="btn btn-primary btn-block btn-lg" th:href="${openInChromeUrl}">Open in Chrome</a></p>
+        <th:block th:unless="${inAppBrowser.embedded()}">
+            <p>
+                <a class="btn btn-google btn-block btn-lg" th:href="@{/oauth2/authorization/google}"><svg
+                        th:replace="~{fragments/layout :: googleMark}"></svg>Continue with Google</a>
+            </p>
+            <p class="small muted center">You have a few minutes to finish signing in.</p>
         </th:block>
 
-        <th:block th:if="${inAppBrowser.name() == 'IOS'}">
-            <p>Tap <strong aria-label="the three dots">⋯</strong> or the share icon and choose
-                <strong>Open in Safari</strong>.</p>
+        <th:block th:if="${inAppBrowser.embedded()}">
+            <div class="banner warn" role="alert"><p>Google sign-in doesn't work inside this app's browser.</p></div>
+
+            <th:block th:if="${inAppBrowser.name() == 'ANDROID'}">
+                <p>Open this page in Chrome to continue.</p>
+                <p><a class="btn btn-primary btn-block btn-lg" th:href="${openInChromeUrl}">Open in Chrome</a></p>
+            </th:block>
+
+            <th:block th:if="${inAppBrowser.name() == 'IOS'}">
+                <p>Tap <strong aria-label="the three dots">⋯</strong> or the share icon and choose
+                    <strong>Open in Safari</strong>.</p>
+            </th:block>
+
+            <p>Or copy the link and paste it into your browser:</p>
+            <div class="copy-row">
+                <label class="visually-hidden" for="copy-url">Page link</label>
+                <input id="copy-url" class="copy-input" type="text" readonly th:value="${currentUrl}">
+                <button type="button" class="btn" th:data-copy="${currentUrl}" data-copy-input="copy-url">Copy link</button>
+            </div>
+            <p class="small ok-text" id="copy-status" role="status" aria-live="polite"></p>
+
+            <p class="small muted">If the code has expired by then, scan it again.</p>
         </th:block>
-
-        <p>Or copy the link and paste it into your browser:</p>
-        <div class="copy-row">
-            <label class="visually-hidden" for="copy-url">Page link</label>
-            <input id="copy-url" class="copy-input" type="text" readonly th:value="${currentUrl}">
-            <button type="button" class="btn" th:data-copy="${currentUrl}" data-copy-input="copy-url">Copy link</button>
-        </div>
-        <p class="small ok-text" id="copy-status" role="status" aria-live="polite"></p>
-
-        <p class="small muted">If the code has expired by then, scan it again.</p>
     </div>
 </main>
 </body>

@@ -2,37 +2,101 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head('My courses · QR Attendance')}"></head>
 <body>
-<header th:replace="~{fragments/layout :: header}"></header>
-<main class="container">
-    <h1>My courses</h1>
+<header th:replace="~{fragments/layout :: header('courses')}"></header>
+<main class="container wide">
+    <div class="page-head">
+        <div>
+            <h1>My courses</h1>
+            <p class="muted">Start attendance in one click: the QR code opens on this screen, ready for the projector.</p>
+        </div>
+    </div>
 
-    <ul class="list" th:unless="${#lists.isEmpty(courses)}">
-        <li th:each="c : ${courses}">
-            <a class="list-link" th:href="@{/teacher/courses/{id}(id=${c.id})}">
-                <span class="list-title" th:text="${c.name}">Algorithms</span>
-                <span class="badge" th:if="${c.code != null and !#strings.isEmpty(c.code)}" th:text="${c.code}">CS101</span>
-            </a>
+    <div class="banner ok" role="status" th:if="${message}"><p th:text="${message}">Course created</p></div>
+
+    <details class="card disclosure new-course" th:open="${showNewCourse}">
+        <summary>New course</summary>
+        <form class="disclosure-body" method="post" th:action="@{/teacher/courses}" th:object="${courseForm}">
+            <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
+                <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
+            </div>
+            <div class="form-grid inline-submit two">
+                <div class="field">
+                    <label for="name">Course name</label>
+                    <input type="text" th:field="*{name}" th:errorclass="invalid" maxlength="200" autocomplete="off"
+                           placeholder="e.g. Algorithms" required>
+                    <p class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">Error</p>
+                </div>
+                <div class="field">
+                    <label for="code">Code <span class="hint">(optional)</span></label>
+                    <input type="text" th:field="*{code}" th:errorclass="invalid" maxlength="50" autocomplete="off"
+                           placeholder="e.g. CS101">
+                    <p class="field-error" th:if="${#fields.hasErrors('code')}" th:errors="*{code}">Error</p>
+                </div>
+                <div class="field submit">
+                    <button type="submit" class="btn btn-primary">Create course</button>
+                </div>
+            </div>
+        </form>
+    </details>
+
+    <div class="card empty-state" th:if="${#lists.isEmpty(courses)}">
+        <strong>No courses yet</strong>
+        Create your first course above. You can then start attendance for it with one click.
+    </div>
+
+    <ul class="course-grid" th:unless="${#lists.isEmpty(courses)}">
+        <li th:each="c : ${courses}" th:id="${'course-' + c.id}" class="card course-card"
+            th:classappend="${createdCourseId == c.id} ? 'is-new'"
+            th:with="live=${c.lastSession != null and c.lastSession.open}">
+            <div class="course-card-head">
+                <h2 class="course-name"><a th:href="@{/teacher/courses/{id}(id=${c.id})}" th:text="${c.name}">Algorithms</a></h2>
+                <span class="badge" th:if="${c.code != null}" th:text="${c.code}">CS101</span>
+            </div>
+
+            <p class="course-meta" th:if="${c.lastSession == null}">No sessions yet</p>
+            <p class="course-meta" th:if="${c.lastSession != null}">
+                <span class="badge badge-ok badge-live" th:if="${live}">Live now</span>
+                <span class="block">Last session <strong th:text="${c.lastSession.day + ', ' + c.lastSession.opensAt}">Fri 16 Oct 2026, 09:00</strong></span>
+                <span class="block" th:text="${c.lastSession.checkedIn + (c.lastSession.expectedHeadcount != null
+                        ? ' of ' + c.lastSession.expectedHeadcount : '') + ' checked in'}">23 of 25 checked in</span>
+            </p>
+
+            <div class="start">
+                <a th:if="${live}" class="btn btn-primary btn-block"
+                   th:href="@{/sessions/{id}/display(id=${c.lastSession.id})}">Show live QR code</a>
+                <form method="post" th:action="@{/teacher/courses/{id}/sessions(id=${c.id})}">
+                    <button type="submit" class="btn btn-block btn-lg"
+                            th:classappend="${live} ? '' : 'btn-primary'"
+                            th:text="${live} ? 'Start a new session' : 'Start attendance'">Start attendance</button>
+                </form>
+                <p class="small muted center" th:text="${defaultDurationMinutes + ' minutes' + (c.nextExpectedHeadcount != null
+                        ? ' · ' + c.nextExpectedHeadcount + ' expected' : '')}">15 minutes · 25 expected</p>
+                <details class="disclosure">
+                    <summary>Options</summary>
+                    <form class="disclosure-body" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${c.id})}">
+                        <input type="hidden" name="headcountExplicit" value="true">
+                        <div class="form-grid">
+                            <div class="field">
+                                <label th:for="${'duration-' + c.id}">Duration <span class="hint">(minutes)</span></label>
+                                <input type="number" inputmode="numeric" name="durationMinutes" th:id="${'duration-' + c.id}"
+                                       min="1" th:max="${maxDurationMinutes}" th:value="${defaultDurationMinutes}" required>
+                            </div>
+                            <div class="field">
+                                <label th:for="${'expected-' + c.id}">Expected students <span class="hint">(optional)</span></label>
+                                <input type="number" inputmode="numeric" name="expectedHeadcount" th:id="${'expected-' + c.id}"
+                                       min="1" max="5000" th:value="${c.nextExpectedHeadcount}">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-block">Start with these options</button>
+                    </form>
+                </details>
+            </div>
+
+            <div class="card-foot">
+                <a th:href="@{/teacher/courses/{id}(id=${c.id})}">History &amp; exports</a>
+            </div>
         </li>
     </ul>
-    <p class="muted empty" th:if="${#lists.isEmpty(courses)}">You don't have any courses yet. Create one below.</p>
-
-    <form class="card" method="post" th:action="@{/teacher/courses}" th:object="${courseForm}">
-        <h2>New course</h2>
-        <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
-            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
-        </div>
-        <div class="field">
-            <label for="name">Name</label>
-            <input type="text" th:field="*{name}" th:errorclass="invalid" maxlength="200" required>
-            <p class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">Error</p>
-        </div>
-        <div class="field">
-            <label for="code">Code</label>
-            <input type="text" th:field="*{code}" th:errorclass="invalid" maxlength="50" required>
-            <p class="field-error" th:if="${#fields.hasErrors('code')}" th:errors="*{code}">Error</p>
-        </div>
-        <button type="submit" class="btn btn-primary">Create course</button>
-    </form>
 </main>
 </body>
 </html>

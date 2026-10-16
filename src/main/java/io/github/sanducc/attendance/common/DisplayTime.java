@@ -4,6 +4,7 @@ import io.github.sanducc.attendance.config.AttendanceProperties;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 /** Times are stored in UTC and rendered in the configured zone (Europe/Bucharest). */
@@ -13,6 +14,7 @@ public class DisplayTime {
     private final DateTimeFormatter time;
     private final DateTimeFormatter timeWithSeconds;
     private final DateTimeFormatter dateTime;
+    private final DateTimeFormatter day;
     private final ZoneId zone;
 
     public DisplayTime(AttendanceProperties properties) {
@@ -20,6 +22,12 @@ public class DisplayTime {
         this.time = DateTimeFormatter.ofPattern("HH:mm").withZone(zone);
         this.timeWithSeconds = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(zone);
         this.dateTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone);
+        this.day = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH).withZone(zone);
+    }
+
+    /** E.g. "Fri 16 Oct 2026", for the teacher's course pages. */
+    public String day(Instant instant) {
+        return day.format(instant);
     }
 
     public String time(Instant instant) {
