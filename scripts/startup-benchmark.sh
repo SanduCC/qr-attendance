@@ -90,16 +90,16 @@ measure_once() {
 median() { sort -g | awk '{v[NR]=$1} END{ if (NR%2) print v[(NR+1)/2]; else printf "%.3f\n", (v[NR/2]+v[NR/2+1])/2 }'; }
 
 if [[ "${1:-}" == "--verify-aot" ]]; then
-  # The cache must load (no "[error][aot]") and the classes must come AOT-linked from it.
+  # The cache must load (no "[error][aot]") and the classes must come AOT-linked from it, at the CPUS/MEMORY limits.
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   start_container "$2" "-Xlog:aot" ""
   wait_until_up
   logs="$(docker logs "$CONTAINER" 2>&1)"
   docker rm -f "$CONTAINER" >/dev/null
-  grep -E '\[aot\] (Opened AOT cache|Using AOT-linked classes|full module graph|Loaded heap)' <<<"$logs" || true
-  if grep -Eq '\[(error|warning) *\]\[aot' <<<"$logs" || ! grep -q 'Using AOT-linked classes: true' <<<"$logs"; then
+  grep -E '\[aot\] (Opened AOT cache|Using AOT-linked classes|full module graph|Loaded heap)|\[warning\]\[aot' <<<"$logs" || true
+  if grep -Eq '\[error *\]\[aot' <<<"$logs" || ! grep -q 'Using AOT-linked classes: true' <<<"$logs"; then
     echo "::error::The AOT cache in $2 was not used:" >&2
-    grep -E '\[(error|warning) *\]\[aot' <<<"$logs" | head -20 >&2
+    grep -E '\[error *\]\[aot' <<<"$logs" | head -20 >&2
     exit 1
   fi
   echo "AOT cache in $2 is used."
