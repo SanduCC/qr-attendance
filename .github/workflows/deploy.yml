@@ -1,0 +1,180 @@
+name: deploy
+
+# Continuous deployment to Google Cloud Run (issue #27). Every merge to master that touches the app builds the
+# image, pushes it to Artifact Registry and deploys it as a new revision that gets traffic only after its
+# /actuator/health is UP. One-time setup, IAM and rollback: docs/deployment.md, "Continuous deployment".
+#
+# - Auth: Workload Identity Federation, no JSON keys. The GCP provider only accepts tokens for this repository on
+#   refs/heads/master, so pull requests, other branches and forks can't deploy, even with a copy of this file.
+# - The job is skipped until the repo variables GCP_WIF_PROVIDER and GCP_DEPLOY_SA are set.
+# - Merges made with GITHUB_TOKEN (Dependabot auto-merge) don't trigger push workflows. They go out with the next
+#   deploy, or run this workflow by hand: Actions > deploy > Run workflow (master).
+# - Flyway migrations run when the new revision starts, i.e. BEFORE traffic moves, while the previous revision
+#   still serves: migrations must be backward compatible (see docs/deployment.md).
+on:
+  push:
+    branches: [master]
+    # Only changes that can affect the running app. `paths` (not paths-ignore) so deploy.yml itself can be
+    # re-included after excluding .github/.
+    paths:
+      - '**'
+      - '!**.md'
+      - '!docs/**'
+      - '!scripts/**'
+      - '!.github/**'
+      - '.github/workflows/deploy.yml'
+      - '!.env.example'
+      - '!docker-compose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # adds -o pipefail
+
+# One deploy at a time and never cancelled half-way. A newer pending run replaces an older pending one.
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+env:
+  PROJECT: qr-attendance-sanducc
+  REGION: europe-west1
+  SERVICE: qr-attendance
+  IMAGE_REPO: europe-west1-docker.pkg.dev/qr-attendance-sanducc/qr-attendance/app
+  CANDIDATE_TAG: candidate
+
+jobs:
+  deploy:
+    name: deploy to Cloud Run
+    if: github.ref == 'refs/heads/master' && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOY_SA != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write  # OIDC token for Workload Identity Federation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # history for the "never deploy an older commit" check
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3.0.0
+        with:
+          project_id: ${{ env.PROJECT }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+
+      # Guards against "Re-run jobs" on an old run, which would silently roll production back.
+      - name: Refuse to deploy a commit older than the last deployed one
+        run: |
+          current="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --format='value(spec.template.spec.containers[0].image)')"
+          deployed="${current##*:}"
+          echo "Last deployed image: $current"
+          if git cat-file -e "${deployed}^{commit}" 2>/dev/null; then
+            if ! git merge-base --is-ancestor "$deployed" "$GITHUB_SHA"; then
+              echo "::error::$GITHUB_SHA is older than the last deployed commit $deployed. To go back, shift traffic to an older revision instead (docs/deployment.md, Rollback)."
+              exit 1
+            fi
+          else
+            echo "::warning::Deployed tag '$deployed' is not a commit of this repository; skipping the ordering check."
+          fi
+
+      - name: Build and push the image
+        id: image
+        run: |
+          image="$IMAGE_REPO:${GITHUB_SHA::7}"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --pull -t "$image" .
+          docker push "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      # Only the image changes: env vars, secrets, runtime service account and scaling stay on the service.
+      # --no-traffic: the new revision starts (and runs Flyway) but production keeps the current revision.
+      # gcloud waits until the revision is Ready, i.e. the app started and port 8080 accepted a connection.
+      - name: Deploy the new revision without traffic
+        id: deploy
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --image "$IMAGE" --no-traffic --tag "$CANDIDATE_TAG" --quiet
+          svc="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
+          revision="$(jq -r --arg t "$CANDIDATE_TAG" '.status.traffic[] | select(.tag == $t) | .revisionName' <<<"$svc")"
+          url="$(jq -r --arg t "$CANDIDATE_TAG" '.status.traffic[] | select(.tag == $t) | .url' <<<"$svc")"
+          latest="$(jq -r '.status.latestCreatedRevisionName' <<<"$svc")"
+          if [[ -z "$revision" || "$revision" != "$latest" ]]; then
+            echo "::error::Tag '$CANDIDATE_TAG' points at '$revision', expected the new revision '$latest'."
+            exit 1
+          fi
+          {
+            echo "revision=$revision"
+            echo "url=$url"
+            echo "service_url=$(jq -r '.status.url' <<<"$svc")"
+          } >> "$GITHUB_OUTPUT"
+
+      # Health includes the database and Redis, so UP means the new revision can really serve.
+      # The revision may already have scaled to zero again; a cold start takes ~17-19 s.
+      - name: Smoke test the new revision
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in $(seq 1 10); do
+            body="$(curl -sS --max-time 40 "$URL/actuator/health" || true)"
+            if [[ "$body" == *'"status":"UP"'* ]]; then
+              echo "Attempt $attempt: $body"
+              exit 0
+            fi
+            echo "Attempt $attempt: not healthy yet (${body:-no response})"
+            sleep 10
+          done
+          echo "::error::The new revision never reported UP. Production traffic stays on the previous revision."
+          exit 1
+
+      - name: Shift all traffic to the new revision
+        id: shift
+        env:
+          REVISION: ${{ steps.deploy.outputs.revision }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" --project "$PROJECT" --region "$REGION" --to-latest --quiet
+          serving="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format=json \
+            | jq -r '.status.traffic[] | select(.percent == 100) | .revisionName')"
+          if [[ "$serving" != "$REVISION" ]]; then
+            echo "::error::100% of traffic is on '$serving', expected '$REVISION' (another deploy in between?)."
+            exit 1
+          fi
+          echo "Serving $REVISION"
+
+      - name: Check production
+        env:
+          URL: ${{ steps.deploy.outputs.service_url }}
+        run: curl -fsS --retry 3 --retry-delay 5 --max-time 40 "$URL/actuator/health"
+
+      - name: Summary
+        if: always()
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          REVISION: ${{ steps.deploy.outputs.revision }}
+          JOB_STATUS: ${{ job.status }}
+          SHIFT: ${{ steps.shift.outcome }}
+        run: |
+          {
+            echo "### Cloud Run deploy: $JOB_STATUS"
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- image: \`${IMAGE:-not built}\`"
+            echo "- revision: \`${REVISION:-not deployed}\`"
+            if [[ "$JOB_STATUS" != "success" ]]; then
+              if [[ "$SHIFT" == "success" ]]; then
+                echo "- traffic **was moved** to the new revision; roll back if needed (docs/deployment.md, Rollback)"
+              else
+                echo "- production traffic **was not moved**: the previous revision still serves"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
