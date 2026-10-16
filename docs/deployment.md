@@ -32,13 +32,119 @@ Serverless container plus managed free-tier databases, all in EU regions.
 
 ### Caveats
 
-- **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot — about 17 s with 512 MiB, 1 vCPU and CPU boost (#28). In practice the teacher opening the display page warms the instance before students scan. `--cpu-boost` helps; `--min-instances=1` removes cold starts but is billed while idle.
+- **Cold starts.** With zero instances running, the first request starts the JVM and Spring Boot. In practice the teacher opening the display page warms the instance before students scan. What the image does to keep it short, how to measure it and the paid options: [Cold start](#cold-start).
 - **Instances.** HTTP sessions (the scanned QR token bound to the browser, the OAuth login state, the sign-in) live in Redis, so `--max-instances` can be raised above 1, and a deploy doesn't sign anyone out (the projector page keeps rotating its QR code). The in-app scheduled jobs (if enabled) then run on every instance. Both are idempotent: auto-close is a single `UPDATE … WHERE status = OPEN AND closes_at <= now`, and the retention purge is a pair of `DELETE … WHERE` statements with a fixed cutoff, so a second run changes nothing. The Upstash command budget is per database, not per instance.
 - **Redis down.** Pages that need a session (scan, sign-in, check-in, teacher pages) answer **503 "temporarily unavailable, try again in a minute"** with `Retry-After`. They never continue without the session. The rate limiter fails open. `/actuator/health` reports DOWN (503) while Redis is unreachable. That's accurate, but don't use it as a liveness probe: restarting the app doesn't fix Redis.
 - **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so in-app timers only fire while an instance happens to be alive, and for the GDPR retention purge the next active day may be weeks away. On Cloud Run, Cloud Scheduler therefore triggers the jobs over HTTPS and the in-app timers are off: see [Scheduled jobs](#scheduled-jobs-cloud-scheduler).
 - **Live updates.** The projector page polls every 3 s, so Cloud Run's request timeout (default 5 min, max 60 min) doesn't affect it. If the live table moves to SSE (#6), clients will have to reconnect after each timeout.
 - `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS).
 - `PUBLIC_BASE_URL` = the `https://<service>-<hash>.<region>.run.app` URL or your custom domain.
+
+### Cold start
+
+With min-instances 0, the first request after about 15 idle minutes waits for a new instance. Before #28 that took
+**~17–19 s** until Spring had started (`Started AttendanceApplication in 16.8–20.2 seconds`, one start at 27 s), and
+the request that caused it got its page after 22–31 s. Where the time went (production logs of revisions
+`00002`–`00004`, 512 MiB, 1 vCPU, startup CPU boost):
+
+| Phase | Time | Bound by |
+|---|---|---|
+| Instance start → JVM process | 0.4–0.7 s | Cloud Run |
+| JVM start, Spring Boot's fat-jar launcher | 2.1–2.5 s | CPU (class loading) |
+| `SpringApplication.run` → "Starting …" (config files, logging) | ~1.5 s | CPU |
+| Bean definitions: component scan, auto-configuration conditions | 3.6–4.0 s | CPU |
+| Repositories, Tomcat initialised, first beans | 2.6–3.1 s (once 6.8 s) | CPU |
+| First Postgres connection (Neon, Frankfurt, from Belgium, TLS) | 1.4–1.6 s, 3.3 s when Neon was asleep | network + Neon wake-up |
+| Flyway: validate V1–V3, nothing to migrate | 0.6 s | network |
+| Hibernate: metamodel, `ddl-auto: validate` | 2.8–4.1 s | CPU, some round trips |
+| JPA repositories, Security, MVC, Spring Session, actuator | 3.6–5.4 s | CPU |
+| Tomcat start (port open, startup probe passes) | ~1 s | CPU |
+| First request: DispatcherServlet, first template, first Redis connection | 0.5–1.9 s | CPU + network |
+
+About 14 of the 17 s are CPU work on one vCPU, mostly loading and linking classes, so that is what the image now
+attacks:
+
+- **JDK 25 AOT cache** ([JEP 483](https://openjdk.org/jeps/483)/[514](https://openjdk.org/jeps/514)/[515](https://openjdk.org/jeps/515)).
+  The `Dockerfile` extracts the Spring Boot jar (`app.jar` + `lib/`) and runs the app once at build time until the
+  Spring context is refreshed (`-Dspring.context.exit=onRefresh`), with `-XX:AOTCacheOutput=/app/app.aot`. That
+  training run needs no database or Redis: Flyway, schema validation and the database warm-up are off, and Hibernate
+  gets its dialect from a flag instead of asking the database. Production starts with `-XX:AOTCache=/app/app.aot`
+  and maps the classes already loaded and linked. The image grows by ~130 MB (~31 MB compressed).
+- **C1 only** (`-XX:TieredStopAtLevel=1`): C2's compilations during startup compete with the app for the one vCPU.
+  Peak throughput is lower, which doesn't matter at a few requests per second.
+- **Database warm-up** (`DatabaseWarmUp`): a background thread opens and closes one Postgres connection as soon as the
+  configuration is read, so a sleeping Neon compute wakes up while Spring is still busy with the CPU work above,
+  instead of while Flyway waits. It logs `Database warm-up: connected in N ms`. Off with
+  `ATTENDANCE_STARTUP_WARMUPDATABASE=false`.
+- All JVM flags are in `/app/jvm.options` (`java @/app/jvm.options …`), shared by the training run and production,
+  because the cache only works with matching flags, the same JDK and the same jar files.
+- `-XX:InitialRAMPercentage=25` is required, not tuning: the cache's archived heap objects (~6 MB) are loaded into
+  the old generation at JVM start, and with the default initial heap (8 MB at 512 MiB) they don't fit. The JVM then
+  **refuses to start** (`archived heap objects cannot be loaded … unrecoverable error`) rather than running without
+  the cache. So the image build starts the app a second time with production's flags, `-XX:MaxRAM=512m` and
+  `-XX:AOTMode=on` (any cache problem is fatal), and `docker build` fails if the cache isn't usable. A cache that
+  doesn't match in a less severe way (e.g. a changed jar) only logs `[error][aot] …` and the app starts without it.
+
+**Measured** by the [`startup benchmark`](../.github/workflows/startup-benchmark.yml) workflow (informational, not a
+required check), which runs on PRs that touch the `Dockerfile`, `pom.xml` or `src/main`. It builds the image of the PR
+and of its base commit and starts each a few times against Postgres 16 + Redis 7 with `--cpus 1|2 --memory 512m`.
+Run it locally with [`scripts/startup-benchmark.sh`](../scripts/startup-benchmark.sh). Medians on a GitHub runner
+(PR #38):
+
+| 512 MiB | `Started … in` 1 vCPU | 2 vCPU | `docker run` → health UP, 1 vCPU | 2 vCPU | first `GET /` (1 vCPU) | memory |
+|---|---|---|---|---|---|---|
+| before (#28) | 19.5 s | 9.3 s | 22.3 s | 11.0 s | 0.78 s | 282 MiB |
+| now | **4.2 s** | **2.7 s** | **5.2 s** | **3.5 s** | 0.36 s | 241 MiB |
+| now, cache off (`-XX:AOTMode=off`) | 7.1 s | 5.4 s | 8.3 s | 6.4 s | 0.28 s | 258 MiB |
+
+Step by step at 2 vCPU (from the PR's first benchmark runs): extracted jar and larger initial heap 9.0 → 7.5 s, C1
+only → 5.4 s, AOT cache → 2.7 s (the cache with C2: 3.9 s). A GitHub runner has no image pull and no cross-region database, so compare the rows with each other: production's 17–19 s before
+look like the 1 vCPU column plus ~2–3 s of network. Tried and dropped, no difference: Hikari `minimum-idle: 2`
+(3.8 vs 3.9 s) and 4 vCPU instead of 2.
+
+**Checking production.** After a deploy, in the revision's logs:
+
+```powershell
+$gcloud = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+& $gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=qr-attendance AND (textPayload:\"Started AttendanceApplication\" OR textPayload:\"Starting new instance\" OR textPayload:\"warm-up\" OR textPayload:\"[aot]\")' `
+    --project qr-attendance-sanducc --freshness 1d --limit 20 --format 'value(timestamp,resource.labels.revision_name,textPayload)'
+```
+
+`Started AttendanceApplication in X seconds (process running for Y)` is the number to compare, and no line may
+contain `[aot]`: any `[error][aot]` means the cache wasn't used.
+
+**Rejected:**
+- *Spring AOT* (`spring-boot:process-aot`, `-Dspring.aot.enabled=true`): it evaluates `@ConditionalOnProperty` at build
+  time, so properties set on the service would stop switching beans, e.g. `FORWARD_HEADERS_STRATEGY=framework` (the
+  forwarded-headers filter; without it, OAuth redirect URIs become `http://` and every client has Cloud Run's IP for
+  the rate limiter) and `JOBS_IN_APP_SCHEDULE`. Its gain on the JVM is small next to the AOT cache.
+- *`spring.main.lazy-initialization`*: moves the same work into the first requests, the ones students are waiting on.
+- *`ddl-auto: none`* (skip Hibernate's schema validation): saves a few round trips, but validation is the check that
+  a revision matches the migrated schema (see [migrations](#migrations-must-be-backward-compatible)).
+- *Moving Cloud Run next to Neon* (`europe-west3`, Frankfurt): saves maybe 0.1–0.3 s of round trips per cold start,
+  at the cost of a pricier region and a new service.
+
+**Options that cost money or need GCP changes** (not applied; prices for `europe-west1`, request-based billing,
+checked 2026-10; recheck before relying on them):
+
+| Option | Effect | Cost |
+|---|---|---|
+| Cloud Scheduler pings `/actuator/health` a few minutes before each class | the teacher never sees a cold start | $0 (job 2 of the 3 free per billing account; each ping is one cold start, ~10–20 vCPU-s) |
+| Min 1 instance only in class hours (two Scheduler jobs that set the service-level minimum to 1 at 07:45 and back to 0 at 20:00, Mon–Fri) | no cold starts in those hours | idle instance ~$0.0000025/vCPU-s + ~$0.0000025/GiB-s: 12 h × 22 days ≈ 950,000 s ≈ **$2.40 CPU + $1.20 memory ≈ $3.60/month**, before any free-tier credit |
+| Min 1 instance around the clock | no cold starts | ≈ **$9.70/month** |
+| `--cpu 2` (the boost then adds more) | CI: 1 → 2 vCPU halves the start, 2 → 4 adds nothing. Production's 1 vCPU + boost behaves like ~1 runner vCPU, so it may save a few more seconds | CPU-seconds while serving ×2; at this app's usage still far inside the free 180,000 vCPU-s a month |
+
+The pre-warm ping (commands for the owner, PowerShell):
+
+```powershell
+$gcloud = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+& $gcloud scheduler jobs create http qr-attendance-prewarm --project qr-attendance-sanducc --location europe-west1 `
+    --schedule '50 7-18 * * 1-5' --time-zone 'Europe/Bucharest' `
+    --uri 'https://qr-attendance-1057355191791.europe-west1.run.app/actuator/health' --http-method GET `
+    --attempt-deadline 60s --description 'Wake the instance before classes (issue 28)'
+```
+
+Narrow `--schedule` to the real timetable (e.g. `'50 7,9,11 * * 1-5'`): every ping wakes Neon for ~5 minutes too.
 
 ### Upstash command budget
 
@@ -156,7 +262,7 @@ app (changes only to `*.md`, `docs/`, `scripts/`, `.github/` other than `deploy.
    account and scaling stay on the service). The new revision starts, **Flyway migrates the database**, and gcloud
    waits until the revision is Ready, while production still runs on the current revision.
 5. Smoke test `https://candidate---<service-url>/actuator/health` (includes the database and Redis), with retries for a
-   ~17–19 s cold start.
+   [cold start](#cold-start).
 6. Only when it reports `UP`: `gcloud run services update-traffic --to-latest`, then check production's health.
 
 If any step fails before 6, users never see the new revision. The job does nothing until the two repo variables
@@ -239,7 +345,7 @@ The deployer doesn't need access to the secrets: Cloud Run checks that the *runt
 
 **Image retention.** A revision whose image was deleted can no longer start an instance, and with min-instances 0
 every cold start pulls the image. Keep at least the newest 3 versions (current, previous for rollback, and one failed
-candidate), about 0.4 GB with shared base layers:
+candidate), about 0.5 GB with shared base layers (each image adds ~100 MB of its own: the app layer and ~31 MB of AOT cache):
 
 ```bash
 cat > cleanup-policy.json <<'EOF'
