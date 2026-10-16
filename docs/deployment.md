@@ -16,6 +16,8 @@ Whatever you pick, the app needs these settings in production (full list in the 
 
 - `PUBLIC_BASE_URL` = the public `https://` URL (encoded in the QR code).
 - `FORWARD_HEADERS_STRATEGY=framework` whenever TLS is terminated by a proxy (Cloud Run, Caddy, nginx).
+- `TRUSTED_PROXY_HOPS` (default `1`) = how many proxies in front of the app append to `X-Forwarded-For`. `1` fits
+  Cloud Run's `run.app` URL, Caddy and nginx; see [Client IP behind a proxy](#client-ip-behind-a-proxy).
 - `COOKIE_SECURE=true` (the default).
 - Secrets (`GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HASH_PEPPER`, `DATABASE_PASSWORD`) from a secret manager or a root-only `.env`, never committed.
 - In the Google OAuth client, add `{PUBLIC_BASE_URL}/login/oauth2/code/google` as an authorized redirect URI.
@@ -37,8 +39,66 @@ Serverless container plus managed free-tier databases, all in EU regions.
 - **Redis down.** Pages that need a session (scan, sign-in, check-in, teacher pages) answer **503 "temporarily unavailable, try again in a minute"** with `Retry-After`. They never continue without the session. The rate limiter fails open. `/actuator/health` reports DOWN (503) while Redis is unreachable. That's accurate, but don't use it as a liveness probe: restarting the app doesn't fix Redis.
 - **Background work.** With request-based billing, CPU is throttled outside requests and the instance may be scaled to zero, so in-app timers only fire while an instance happens to be alive, and for the GDPR retention purge the next active day may be weeks away. On Cloud Run, Cloud Scheduler therefore triggers the jobs over HTTPS and the in-app timers are off: see [Scheduled jobs](#scheduled-jobs-cloud-scheduler).
 - **Live updates.** The projector page polls every 3 s, so Cloud Run's request timeout (default 5 min, max 60 min) doesn't affect it. If the live table moves to SSE (#6), clients will have to reconnect after each timeout.
-- `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS).
+- `FORWARD_HEADERS_STRATEGY=framework` is required (Cloud Run terminates TLS). Leave `TRUSTED_PROXY_HOPS` at its
+  default `1` for the `run.app` URL or a Cloud Run domain mapping; set `2` only if you put an external Application
+  Load Balancer in front ([Client IP behind a proxy](#client-ip-behind-a-proxy)).
 - `PUBLIC_BASE_URL` = the `https://<service>-<hash>.<region>.run.app` URL or your custom domain.
+
+### Client IP behind a proxy
+
+The per-IP rate limits (120/min for scan and check-in, 10/min for `/internal/jobs/daily`) and
+`attendance_record.ip_hash` use the client's IP address. Behind a proxy the app only sees the proxy's address, so the
+client's comes from a header, and that header must be one the client can't write (#39).
+
+**What the proxies send.** Proxies *append* to `X-Forwarded-For`: whatever the client sent stays at the left, and
+the proxy adds the address it received the request from at the right. Google documents this for its load balancer:
+`X-Forwarded-For: <supplied-value>,<client-ip>,<load-balancer-ip>`, and "the load balancer does not verify any IP
+addresses that precede `<client-ip>,<load-balancer-ip>` in this header"
+([External Application Load Balancer overview](https://cloud.google.com/load-balancing/docs/https)).
+Cloud Run's own docs ([request headers](https://cloud.google.com/functions/docs/reference/headers),
+[container contract](https://cloud.google.com/run/docs/container-contract)) don't say how its front end treats a
+client's header on the `run.app` URL, so it was measured on production (2026-10-17, `/internal/jobs/daily`, its
+10/min limit as the probe):
+
+| Request | Result with Spring's plain `ForwardedHeaderFilter` |
+|---|---|
+| 11 calls, no extra header | 10 × 401, then 429 |
+| then: a new `X-Forwarded-For: 203.0.113.x` per call | 429: limited (so Cloud Run also sends a `Forwarded: for=` header, which Spring reads first) |
+| then: a new `Forwarded: for=203.0.113.x` per call | **401: a fresh budget per call**, the limit is bypassed |
+| `Forwarded: by=foo` (no `for=`) + a new `X-Forwarded-For` per call, after exhausting that key | **401**: Spring falls back to the left-most `X-Forwarded-For`, which is the client's |
+
+So the client's `Forwarded` and `X-Forwarded-For` values both reach the app in front of Cloud Run's, and Spring
+(`ForwardedHeaderUtils.parseForwardedFor`) takes the *left-most* `Forwarded: for=`, else the left-most
+`X-Forwarded-For`. Tomcat's `RemoteIpValve` (`server.forward-headers-strategy=native`) would walk `X-Forwarded-For`
+from the right, but only when the TCP peer matches its `internal-proxies` pattern. Cloud Run doesn't document the
+address the container sees as its peer, and a wrong guess would silently give every client the proxy's address (and
+`http` redirect URIs), so the app counts hops instead.
+
+**What the app does.** With `FORWARD_HEADERS_STRATEGY=framework` it registers `TrustedProxyForwardedHeaderFilter` in
+place of Spring Boot's `ForwardedHeaderFilter`. Scheme, host and port are handled by Spring's code exactly as before
+(OAuth redirect URI `https://…run.app/login/oauth2/code/google`, `request.isSecure()`, HSTS), and the forwarded headers
+are still hidden from the rest of the app. Only the client IP differs: it's the `X-Forwarded-For` entry
+`TRUSTED_PROXY_HOPS` (`attendance.security.trusted-proxy-hops`) from the right. All `X-Forwarded-For` lines count as
+one list; the `Forwarded` header is never used for the IP; an entry that isn't an IP address falls back to the TCP
+peer.
+
+| `TRUSTED_PROXY_HOPS` | Use it for | Client IP |
+|---|---|---|
+| `1` (default) | Cloud Run `run.app` / domain mapping, Caddy, nginx (`$proxy_add_x_forwarded_for`) | right-most entry |
+| `2` | an external Application Load Balancer in front of Cloud Run (`<client-ip>,<load-balancer-ip>`) | second from the right |
+| `0` | ignore the header | TCP peer |
+
+With fewer entries than hops, every entry came from a trusted proxy, so the left-most is used. A hop count only
+holds if clients can't skip a proxy: with a load balancer in front, set Cloud Run's ingress to "internal and Cloud Load
+Balancing", or a direct `run.app` call would get its client-written entry counted as the client. With
+`FORWARD_HEADERS_STRATEGY=none` (docker compose without a proxy) no header is read at all and the setting does nothing.
+
+**Checking it.** At `DEBUG` the filter logs one line per request with the shape of the headers, never an address:
+`Client IP from 2 X-Forwarded-For entries on 1 line(s), 1 trusted hop(s); Forwarded has 2 for= entries, its trusted
+entry matches`. "matches" means Cloud Run's own `Forwarded` header names the same client, i.e. the hop count is right.
+It's off by default; to look once, set
+`LOGGING_LEVEL_IO_GITHUB_SANDUCC_ATTENDANCE_COMMON_FORWARDEDCLIENTIP=DEBUG` on the service (a new revision), make a
+request, read the log, then remove the variable again.
 
 ### Cold start
 
@@ -585,7 +645,8 @@ Convenient git-push deploys, but at the time of writing their free offers either
 ## GDPR checklist for production
 
 - [ ] Database, Redis and app hosted in **EU regions**; data processing agreements (DPAs) accepted with every provider. Redis holds the HTTP sessions, including a signed-in user's Google profile (name, email), until 60 minutes of inactivity.
-- [ ] **HTTPS only** (`COOKIE_SECURE=true`, valid certificate, `FORWARD_HEADERS_STRATEGY=framework` behind the proxy).
+- [ ] **HTTPS only** (`COOKIE_SECURE=true`, valid certificate, `FORWARD_HEADERS_STRATEGY=framework` behind the proxy,
+  `TRUSTED_PROXY_HOPS` matching the proxies in front: [Client IP behind a proxy](#client-ip-behind-a-proxy)).
 - [ ] Secrets in a **secret manager** (or a root-only `chmod 600` `.env` on a VPS) — never in git, images or CI logs.
 - [ ] Postgres and Redis **not exposed** to the internet; strong, non-default passwords.
 - [ ] **Backups** automated, encrypted, stored in the EU, and a restore tested at least once.
