@@ -118,6 +118,138 @@ gcloud run services update qr-attendance --region "$REGION" --update-env-vars "P
 
 Then add `$URL/login/oauth2/code/google` to the Google OAuth client. Later deploys only need `--image` (or `--source`) and `--region`: the env vars, secrets and service account stay on the service. Old images in Artifact Registry count against its free storage — delete them or add a cleanup policy.
 
+### Continuous deployment (GitHub Actions → Cloud Run)
+
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) deploys every merge to `master` that touches the
+app (changes only to `*.md`, `docs/`, `scripts/`, `.github/` other than `deploy.yml`, `.env.example` or
+`docker-compose.yml` are skipped). It can also be started by hand: *Actions > deploy > Run workflow* on `master`, or
+`gh workflow run deploy.yml --ref master`.
+
+1. Authenticate with **Workload Identity Federation**: GitHub's OIDC token is exchanged for a short-lived token of the
+   deployer service account. No JSON key exists anywhere. The provider accepts only tokens for this repository on
+   `refs/heads/master`, so pull requests, other branches and forks can't deploy.
+2. Refuse to deploy a commit older than the one last deployed (protects against *Re-run jobs* on an old run).
+3. `docker build` the `Dockerfile` on the runner, push `…/qr-attendance/app:<short-sha>` to Artifact Registry.
+4. `gcloud run deploy --image … --no-traffic --tag candidate`: only the image changes (env vars, secrets, service
+   account and scaling stay on the service). The new revision starts, **Flyway migrates the database**, and gcloud
+   waits until the revision is Ready, while production still runs on the current revision.
+5. Smoke test `https://candidate---<service-url>/actuator/health` (includes the database and Redis), with retries for a
+   ~17–19 s cold start.
+6. Only when it reports `UP`: `gcloud run services update-traffic --to-latest`, then check production's health.
+
+If any step fails before 6, users never see the new revision. The job does nothing until the two repo variables
+below are set.
+
+**Merges by Dependabot auto-merge** are made with `GITHUB_TOKEN`, which doesn't trigger push workflows, so they are
+not deployed on their own. They go out with the next deploy (the image is always built from the merged commit, which
+contains them), or run the workflow by hand.
+
+#### Migrations must be backward compatible
+
+The new revision applies its Flyway migrations **before** traffic moves, and a traffic rollback doesn't undo them. For
+a while the previous revision runs against the new schema, and with `ddl-auto: validate` it re-validates the schema on
+every cold start. So every migration must work with the previous release too: add tables/columns (nullable or with a
+default) freely; drop or rename in two steps (release 1 stops using the column, release 2 drops it). PostgreSQL runs
+each migration in a transaction, so a failing migration leaves the schema unchanged and the revision never becomes
+Ready.
+
+#### One-time setup
+
+Run once as a project owner. Nothing here is a secret: the provider name and service account email are stored as
+repository **variables**.
+
+```bash
+PROJECT=qr-attendance-sanducc
+PROJECT_NUMBER=1057355191791
+REGION=europe-west1
+GITHUB_REPO=SanduCC/qr-attendance
+GITHUB_REPO_ID=1421377759   # gh api repos/SanduCC/qr-attendance --jq .id (survives renames; a re-created repo gets a new id)
+DEPLOYER="qr-attendance-deployer@$PROJECT.iam.gserviceaccount.com"
+RUNTIME="qr-attendance-run@$PROJECT.iam.gserviceaccount.com"
+
+# 1. APIs for the token exchange (iamcredentials is usually on already)
+gcloud services enable sts.googleapis.com iamcredentials.googleapis.com --project "$PROJECT"
+
+# 2. A pool for GitHub Actions (reusable by other workflows, e.g. #26)
+gcloud iam workload-identity-pools create github --project "$PROJECT" --location global \
+  --display-name "GitHub Actions"
+
+# 3. A provider that only accepts this repository's master branch
+gcloud iam workload-identity-pools providers create-oidc qr-attendance --project "$PROJECT" --location global \
+  --workload-identity-pool github \
+  --display-name "SanduCC/qr-attendance master" \
+  --issuer-uri "https://token.actions.githubusercontent.com" \
+  --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_id=assertion.repository_id,attribute.ref=assertion.ref" \
+  --attribute-condition "assertion.repository == '$GITHUB_REPO' && assertion.repository_id == '$GITHUB_REPO_ID' && assertion.ref == 'refs/heads/master'"
+
+# 4. The deployer service account (no project-level roles)
+gcloud iam service-accounts create qr-attendance-deployer --project "$PROJECT" \
+  --display-name "qr-attendance deployer (GitHub Actions)"
+
+# 5. Tokens from this repository may impersonate it
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --project "$PROJECT" \
+  --role roles/iam.workloadIdentityUser \
+  --member "principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/$GITHUB_REPO_ID"
+
+# 6. Push images to this one Artifact Registry repository
+gcloud artifacts repositories add-iam-policy-binding qr-attendance --project "$PROJECT" --location "$REGION" \
+  --member "serviceAccount:$DEPLOYER" --role roles/artifactregistry.writer
+
+# 7. Deploy revisions and move traffic on this one Cloud Run service
+#    (run.developer, not run.admin: it can't change who may invoke the service)
+gcloud run services add-iam-policy-binding qr-attendance --project "$PROJECT" --region "$REGION" \
+  --member "serviceAccount:$DEPLOYER" --role roles/run.developer
+
+# 8. Revisions run as the runtime service account: allow "act as" on that account only, not project-wide
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME" --project "$PROJECT" \
+  --member "serviceAccount:$DEPLOYER" --role roles/iam.serviceAccountUser
+
+# 9. Repository variables read by deploy.yml
+gh variable set GCP_WIF_PROVIDER --repo "$GITHUB_REPO" \
+  --body "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/qr-attendance"
+gh variable set GCP_DEPLOY_SA --repo "$GITHUB_REPO" --body "$DEPLOYER"
+
+# 10. First run (also proves the setup)
+gh workflow run deploy.yml --repo "$GITHUB_REPO" --ref master
+```
+
+The deployer doesn't need access to the secrets: Cloud Run checks that the *runtime* service account can read them.
+
+**Image retention.** A revision whose image was deleted can no longer start an instance, and with min-instances 0
+every cold start pulls the image. Keep at least the newest 3 versions (current, previous for rollback, and one failed
+candidate), about 0.4 GB with shared base layers:
+
+```bash
+cat > cleanup-policy.json <<'EOF'
+[
+  {"name": "delete-older", "action": {"type": "Delete"}, "condition": {"tagState": "any", "olderThan": "1d"}},
+  {"name": "keep-latest-3", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}}
+]
+EOF
+gcloud artifacts repositories set-cleanup-policies qr-attendance --project "$PROJECT" --location "$REGION" \
+  --policy cleanup-policy.json --overwrite
+```
+
+#### Rollback
+
+A failed deploy needs no action: traffic was never moved (it stays pinned to the previous revision until the next
+successful run). To go back after a bad release reached users:
+
+```bash
+gcloud run revisions list --service qr-attendance --region europe-west1 \
+  --format "table(name,active,spec.containers[0].image,metadata.creationTimestamp)"
+gcloud run services update-traffic qr-attendance --region europe-west1 --to-revisions <previous-revision>=100
+```
+
+This takes effect in seconds and doesn't touch the database (see above). Traffic is now pinned to that revision, so
+a manual `gcloud run deploy` won't get traffic until you run
+`gcloud run services update-traffic qr-attendance --region europe-west1 --to-latest`; the next workflow run does that
+itself after its smoke test.
+To deploy an older commit instead, revert it on `master` through a PR (the workflow refuses to deploy older commits).
+
+**Deploys end users' sessions.** HTTP sessions (logins, a scanned QR token) are in memory, so after the traffic
+switch everyone signs in again, including the teacher's projector page. Avoid merging app changes during a class.
+
 ---
 
 ## (b) Oracle Cloud Always Free ARM VM + docker compose + Caddy

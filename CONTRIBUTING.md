@@ -60,6 +60,10 @@ python scripts/merge_pr.py <pr-number> --dry-run   # report only
 python scripts/merge_pr.py <pr-number>             # refresh branch if behind, wait for checks, squash-merge, delete branch
 ```
 
+A merge that touches the app deploys it to Cloud Run (`deploy.yml`, see
+[docs/deployment.md](docs/deployment.md#continuous-deployment-github-actions--cloud-run)), so don't merge app changes
+during a class, and keep Flyway migrations backward compatible with the previous release.
+
 The script refuses if a required check isn't green, the PR conflicts, is a draft, or targets anything but `master`.
 When the branch is behind `master` it updates it, waits for the checks to rerun on the new commit and only then merges.
 If you add or rename a CI job, update `REQUIRED_CHECKS` in the script **and** the required checks in the branch
