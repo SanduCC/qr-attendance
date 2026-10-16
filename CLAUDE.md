@@ -21,12 +21,22 @@ AttendanceSession(id UUID, course_id, opened_at, closes_at, status[OPEN|CLOSED],
                   expected_headcount NULL, geofence_lat NULL, geofence_lng NULL, geofence_radius_m NULL)
 Student(id, provider[GOOGLE|APPLE], provider_subject, email, first_name, last_name, created_at)
     UNIQUE(provider, provider_subject)
-AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_hash, user_agent)
+AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash NULL, ip_hash NULL, user_agent,
+                 manual, added_by_teacher_id NULL, manual_first_name NULL, manual_last_name NULL)
     UNIQUE(session_id, student_id)       -- one check-in per student per session
     UNIQUE(session_id, device_id_hash)   -- one check-in per device per session
+    CHECK  not manual => student_id, device_id_hash, ip_hash all set   -- a real scan keeps every anti-cheat field
+    CHECK  manual => no device_id_hash, no ip_hash; student_id XOR manual_first/last_name
+    UNIQUE(session_id, lower(manual_last_name), lower(manual_first_name)) WHERE student_id IS NULL
 ```
 - Identify students by `provider_subject` (the OAuth `sub` claim), **never** by email or name.
 - Names come pre-filled from the OAuth profile. The student can correct them only on first registration; after that they're locked (teachers can edit).
+- A teacher's name correction changes the `Student` row, so it applies everywhere (every session, every course's export).
+- **Manual entries** (teacher adds someone who couldn't scan): `manual = true`, `added_by_teacher_id` set, no device or IP
+  hash (NULLs never collide in the unique constraints). Either `student_id` is a student of the course (anyone with an entry
+  in one of its sessions), or, for someone without an account, `student_id` is NULL and the name is on the record. They
+  count in the counter, headcount check and exports (column "Source": `scan` / `manual`) and go with their session in the
+  retention purge.
 
 ## Core flows
 
@@ -36,7 +46,8 @@ AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_h
    Deactivated teachers lose access immediately; their courses and attendance are kept.
 2. Create a course (name, optional code) → one-click "Start attendance" on its card (default duration 15 min, configurable; expected headcount reused from the course's last session; both adjustable under "Options").
 3. Display page (`/sessions/{id}/display`) shows a **rotating QR code** plus a live counter: "23 checked in / expected 25".
-4. Live attendance table on the same page (via SSE or 3s polling); the teacher can remove a suspicious entry.
+4. Live attendance table on the same page (via SSE or 3s polling); the teacher can remove a suspicious entry, correct a
+   name, or add an entry by hand ("Add entry"), also after the session has closed.
 5. Close the session manually or let it expire. Export CSV.
 
 ### Student
@@ -68,6 +79,9 @@ AttendanceRecord(id, session_id, student_id, checked_in_at, device_id_hash, ip_h
 | GET | `/sessions/{id}/qr-token` | teacher | current token (polled every ~10s) |
 | GET | `/sessions/{id}/records` | teacher | JSON/SSE list of check-ins |
 | DELETE | `/sessions/{id}/records/{recordId}` | teacher | remove entry |
+| POST | `/sessions/{id}/records` | teacher | manual entry: `studentId` (a course student) or `firstName` + `lastName` (no account) |
+| POST | `/sessions/{id}/records/{recordId}/name` | teacher | correct the name (the student's everywhere, or the manual entry's) |
+| GET | `/sessions/{id}/students` | teacher | the course's students not yet in this session (manual-entry picker) |
 | POST | `/sessions/{id}/close` | teacher | close session |
 | GET | `/sessions/{id}/export.csv` | teacher | export |
 | GET | `/a/{sessionId}?t=` | public | scan landing, validates token |
@@ -126,7 +140,8 @@ Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HAS
 
 ## MVP scope
 **In:** Google login, courses, sessions, rotating QR, one-per-account + one-per-device, live teacher table, CSV export.
-**Later:** Apple login, geofence, Workspace domain lock, stats per student, multiple teachers per course, offline/manual entry by teacher.
+**Later:** Apple login, geofence, Workspace domain lock, stats per student, multiple teachers per course.
+**Done after the MVP:** teachers edit student names (#5), manual entry by the teacher (#10).
 
 ## When working on this repo
 - Don't weaken any anti-cheating rule without asking.

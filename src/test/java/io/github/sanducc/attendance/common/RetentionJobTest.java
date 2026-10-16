@@ -2,6 +2,7 @@ package io.github.sanducc.attendance.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.sanducc.attendance.checkin.AttendanceRecord;
 import io.github.sanducc.attendance.checkin.Student;
 import io.github.sanducc.attendance.course.Course;
 import io.github.sanducc.attendance.course.Teacher;
@@ -75,6 +76,33 @@ class RetentionJobTest extends IntegrationTestSupport {
         // Teachers and courses are not personal attendance data and stay.
         assertThat(teacherRepository.count()).isEqualTo(1);
         assertThat(courseService.listCourses(course.getTeacherId())).hasSize(1);
+    }
+
+    @Test
+    void manualEntriesArePurgedWithTheirSessionAndTheirStudents() {
+        // Last year: a manual entry for someone without an account, and one for a student who had no other entry.
+        clock.set(Instant.parse("2026-09-10T08:00:00Z"));
+        Student onlyManual = insertStudent("sub-manual", "Dan", "Pop");
+        recordRepository.saveAndFlush(AttendanceRecord.manualByName(lastYearSession, "Carmen", "Dobre",
+                course.getTeacherId(), clock.instant()));
+        recordRepository.saveAndFlush(AttendanceRecord.manualForStudent(lastYearSession, onlyManual.getId(),
+                course.getTeacherId(), clock.instant()));
+        // This year: a manual entry that must stay.
+        AttendanceRecord kept = recordRepository.saveAndFlush(AttendanceRecord.manualByName(thisYearSession, "Ion",
+                "Dobre", course.getTeacherId(), clock.instant()));
+        clock.set(Instant.parse("2026-11-15T01:30:00Z"));
+
+        RetentionJob.Result result = retentionJob.purge();
+
+        assertThat(result.deletedStudents()).isEqualTo(2);
+        assertThat(recordRepository.findAll()).extracting(AttendanceRecord::getSessionId).containsOnly(thisYearSession);
+        assertThat(recordRepository.count()).isEqualTo(3);
+        assertThat(recordRepository.existsById(kept.getId())).isTrue();
+        Integer freeTextNames = jdbc.queryForObject(
+                "select count(*) from attendance_record where manual_last_name is not null", Integer.class);
+        assertThat(freeTextNames).as("only this year's free-text name is left").isEqualTo(1);
+        assertThat(studentRepository.existsById(onlyManual.getId())).isFalse();
+        assertThat(studentRepository.existsById(onlyLastYear.getId())).isFalse();
     }
 
     @Test

@@ -36,6 +36,18 @@ class AttendanceSheetTest {
     }
 
     @Test
+    void manualEntriesCountAndAreNamedInTheSubtitleAndMarkedPerRow() {
+        List<RecordView> records = List.of(record("Ana", "Pop", "06:01:00"),
+                new RecordView(2L, null, "Ion", "Dobre", null, Instant.parse("2026-10-16T06:30:00Z"), true));
+
+        AttendanceSheet sheet = sheet("Algoritmi", "CS101", 2, records);
+
+        assertThat(sheet.subtitle()).isEqualTo("2026-10-16 09:00–09:15 · 2 checked in (1 manual) / expected 2");
+        assertThat(sheet.rows()).extracting(AttendanceSheet.Row::lastName, AttendanceSheet.Row::source)
+                .containsExactly(tuple("Dobre", "manual"), tuple("Pop", "scan"));
+    }
+
+    @Test
     void windowAcrossMidnightRepeatsTheDate() {
         AttendanceSheet sheet = AttendanceSheet.of("Algoritmi", "CS101", Instant.parse("2026-10-16T20:50:00Z"),
                 Instant.parse("2026-10-16T21:05:00Z"), null, List.of(), BUCHAREST);
@@ -95,7 +107,7 @@ class AttendanceSheetTest {
     @Test
     void checkInTimesAreConvertedToBucharest() {
         AttendanceSheet sheet = sheet("Algoritmi", "CS101", null, List.of(
-                new RecordView(1L, "Ana", "Pop", null, Instant.parse("2026-07-01T21:30:00Z"))));
+                scanned(1L, "Ana", "Pop", null, Instant.parse("2026-07-01T21:30:00Z"))));
 
         assertThat(sheet.rows().getFirst().checkedInAt()).isEqualTo(LocalDateTime.parse("2026-07-02T00:30:00"));
     }
@@ -132,6 +144,11 @@ class AttendanceSheetTest {
     }
 
     private static RecordView record(String firstName, String lastName, String utcTime) {
-        return new RecordView(null, firstName, lastName, null, Instant.parse("2026-10-16T" + utcTime + "Z"));
+        return scanned(null, firstName, lastName, null, Instant.parse("2026-10-16T" + utcTime + "Z"));
+    }
+
+    /** A scanned check-in (not manual, no student id needed here). */
+    static RecordView scanned(Long id, String firstName, String lastName, String email, Instant checkedInAt) {
+        return new RecordView(id, null, firstName, lastName, email, checkedInAt, false);
     }
 }

@@ -10,7 +10,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** Keyed on (provider, provider_subject); names are set once at first check-in and then locked. */
+/**
+ * Keyed on (provider, provider_subject). The student sets the names once, at first check-in; after that only a
+ * teacher can correct them ({@link AttendanceRecordService#renameEntry}), and the change applies everywhere.
+ */
 @Entity
 @Table(name = "student")
 public class Student {
@@ -76,6 +79,12 @@ public class Student {
 
     public String getLastName() {
         return lastName;
+    }
+
+    /** Teacher correction; the caller has validated and normalized the names. */
+    void rename(String firstName, String lastName) {
+        this.firstName = firstName;
+        this.lastName = lastName;
     }
 
     public Instant getCreatedAt() {

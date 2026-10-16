@@ -293,6 +293,28 @@ body.display { background: var(--bg); color: var(--text); }
 .controls form { margin: 0; }
 .display .table td.name { font-weight: 600; overflow-wrap: anywhere; }
 .display .table td.email { color: var(--muted); overflow-wrap: anywhere; }
+.display .table td.actions { white-space: normal; }
+.row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s1); }
+.badge-manual { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); font-weight: 700; }
+
+/* Teacher dialogs (add an entry by hand, edit a name): native <dialog>, opened by display.js. */
+.dialog {
+  width: min(28rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow-y: auto;
+  padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface); color: var(--text); box-shadow: 0 10px 30px rgb(15 23 42 / .25);
+}
+.dialog::backdrop { background: rgb(15 23 42 / .55); }
+.dialog form { margin: 0; }
+.dialog-title { font-size: var(--fs-lg); margin: 0 0 var(--s2); }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); margin-top: var(--s4); }
+.dialog .banner { margin: var(--s2) 0 0; }
+.field select {
+  display: block; width: 100%; min-height: 44px; padding: .625rem .75rem;
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+}
+.field select:focus-visible { outline: 3px solid var(--focus); outline-offset: 0; border-color: var(--focus); }
+.field .hint.small { margin: var(--s1) 0 0; }
 @media (min-width: 64rem) {
   .display-grid { grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem); align-items: start; }
   .qr-panel { position: sticky; top: var(--s5); }
