@@ -1,0 +1,128 @@
+name: DAST (ZAP baseline)
+
+# Dynamic security test of the deployed app with the OWASP ZAP baseline scan (issue #12, replaces EthicalCheck).
+# Informational, NOT a required check, and it never fails because of findings.
+#
+# - PASSIVE ONLY: ZAP spiders the public pages for at most 1 minute (1 thread) and inspects the responses (headers,
+#   CSP, cookies, caching, information leaks). No active/attack scan and no login: production serves real students.
+# - Target: production, or the repo variable DAST_TARGET_URL (an https origin, no path). Never a third-party host;
+#   the Google sign-in link is out of scope (.zap/rules.tsv), so ZAP doesn't follow it to accounts.google.com.
+# - Not on pull requests: they have no deployed preview. Runs weekly, after each successful deploy and by hand
+#   (Actions > DAST (ZAP baseline) > Run workflow; any branch is fine, it only reads public pages).
+# - Load: ~15-25 GET requests per run (the first run found 15 URLs), at most one cold start. Redis (Upstash): ~10-20
+#   commands (the /a/ landing's rate-limit counters, plus a new HTTP session for each of the ~3 URLs that redirect
+#   to /login): ~0.004% of the 500K/month free plan. See docs/deployment.md, "Upstash command budget".
+# - Results: job summary, the report artifact (HTML / JSON / Markdown) and, for runs on master, one GitHub issue
+#   "ZAP baseline report (production)" that the action opens, updates and closes when everything is resolved.
+#   Accepted findings: .zap/rules.tsv, each with its reason. Triage: CONTRIBUTING.md, "DAST".
+on:
+  schedule:
+    - cron: "17 4 * * 1"  # Mondays 04:17 UTC (Bucharest 07:17 summer / 06:17 winter): after Dependabot, before classes
+  workflow_run:
+    workflows: [deploy]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # adds -o pipefail
+
+# One scan at a time; a newer pending run replaces an older pending one.
+concurrency:
+  group: dast-zap-baseline
+  cancel-in-progress: false
+
+env:
+  TARGET_URL: ${{ vars.DAST_TARGET_URL || 'https://qr-attendance-1057355191791.europe-west1.run.app' }}
+  # A made-up session id: the scan landing answers "Session not found" (404), so ZAP also sees the student page
+  # template and the device_id cookie without any real session or QR token. ZAP requests it before spidering from
+  # the root, and logs "status code returned : 404 expected 200" for it; that warning is expected.
+  LANDING_PATH: /a/00000000-0000-0000-0000-000000000000
+  ARTIFACT_NAME: zap-baseline-report
+
+jobs:
+  baseline:
+    name: ZAP baseline scan (informational)
+    # workflow_run fires for every completed deploy run; scan only after a successful one. This trigger never checks
+    # out or runs code from a pull request: checkout below takes the default branch, and nothing is downloaded.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read  # checkout (.zap/rules.tsv)
+      issues: write   # open / update / close the report issue (runs on master only, see allow_issue_writing)
+      actions: read   # the action reads the previous run's report artifact to list what changed
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the target and wake up the instance
+        id: target
+        run: |
+          if [[ ! "$TARGET_URL" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
+            echo "::error::DAST_TARGET_URL must be an https origin without a path, got '$TARGET_URL'."
+            exit 1
+          fi
+          echo "host=${TARGET_URL#https://}" >> "$GITHUB_OUTPUT"
+          # A cold start takes ~20 s; ZAP's first request shouldn't be the one that waits for it.
+          curl -sS -o /dev/null --retry 3 --retry-delay 5 --max-time 60 \
+            -w "GET / -> %{http_code} in %{time_total} s\n" "$TARGET_URL/"
+
+      # zap-baseline.py: -m 1 = spider for at most 1 minute; -I = warnings don't change the exit code (the action
+      # doesn't fail on findings anyway, fail_action is false). -c: the rules file, also when it has no IGNORE line
+      # (the action itself only passes it when there is one). -z: one spider thread, and a timeout that survives a
+      # cold start.
+      - name: ZAP baseline scan (passive)
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25  # v0.15.0
+        with:
+          target: ${{ env.TARGET_URL }}${{ env.LANDING_PATH }}
+          docker_name: ghcr.io/zaproxy/zaproxy:stable
+          rules_file_name: .zap/rules.tsv
+          cmd_options: >-
+            -m 1 -I -c .zap/rules.tsv
+            -z "-config spider.thread=1 -config connection.timeoutInSecs=60"
+          fail_action: false
+          allow_issue_writing: ${{ github.ref == 'refs/heads/master' }}
+          issue_title: ZAP baseline report (production)
+          artifact_name: ${{ env.ARTIFACT_NAME }}
+
+      - name: Summary
+        if: always()
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          report=report_json.json
+          if [[ ! -f "$report" ]]; then
+            echo "### ZAP baseline: no report, the scan didn't finish (see the log)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Rule ids accepted in .zap/rules.tsv. When the action wrote the issue, it already moved those alerts to
+          # "ignoredAlerts"; otherwise they are still in "alerts". Both are counted here.
+          ignored="$(awk -F'\t' '!/^#/ && $2 == "IGNORE" { print $1 }' .zap/rules.tsv | jq -R . | jq -sc .)"
+          jq -r --arg host "$HOST" --argjson ignored "$ignored" --arg artifact "$ARTIFACT_NAME" '
+            def risk: ["Informational", "Low", "Medium", "High"][.riskcode | tonumber];
+            [.site[] | select(."@host" == $host) | ((.alerts // []) + (.ignoredAlerts // []))[]]
+            | unique_by(.alertRef // .pluginid)
+            | map(. + {ignored: (.pluginid as $id | $ignored | index($id) != null)})
+            | sort_by(-(.riskcode | tonumber), .pluginid) as $alerts
+            | "### ZAP baseline scan of https://\($host)",
+              "",
+              "| Risk | Open | Accepted in `.zap/rules.tsv` |",
+              "|---|---|---|",
+              (range(3; -1; -1) as $r
+                | ($alerts | map(select((.riskcode | tonumber) == $r))) as $a
+                | "| \(["Informational", "Low", "Medium", "High"][$r]) | \($a | map(select(.ignored | not)) | length) | \($a | map(select(.ignored)) | length) |"),
+              "",
+              (if ($alerts | length) == 0 then "No alerts." else
+                "| Risk | Alert | Rule | Instances | Status |",
+                "|---|---|---|---|---|",
+                ($alerts[] | "| \(risk) | \(.alert) | \(.alertRef // .pluginid) | \(.count // (.instances | length)) | \(if .ignored then "accepted" else "**open**" end) |")
+              end),
+              "",
+              "Full report: artifact `\($artifact)` of this run (HTML, JSON, Markdown)."
+          ' "$report" | tee -a "$GITHUB_STEP_SUMMARY"

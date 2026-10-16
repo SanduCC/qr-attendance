@@ -5,6 +5,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.CrossOriginEmbedderPolicyHeaderWriter.CrossOriginEmbedderPolicy;
+import org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter.CrossOriginOpenerPolicy;
+import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration(proxyBeanMethods = false)
@@ -19,6 +22,15 @@ public class SecurityConfig {
             "base-uri 'self'",
             "form-action 'self'",
             "frame-ancestors 'none'");
+
+    /**
+     * Browser features no page uses. The clipboard (landing page "copy link") is left alone. Geolocation is allowed
+     * for our own origin only ({@code geolocation=(self)}): the optional location check (#3, rule 6) reads it on the
+     * teacher's start-options form and the student's confirm page; no third-party frame may use it.
+     */
+    static final String PERMISSIONS_POLICY = String.join(", ",
+            "accelerometer=()", "browsing-topics=()", "camera=()", "display-capture=()", "geolocation=(self)",
+            "gyroscope=()", "magnetometer=()", "microphone=()", "midi=()", "payment=()", "usb=()");
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -47,7 +59,13 @@ public class SecurityConfig {
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives(CSP))
                         // The scan URL carries the QR token; don't leak it to Google via Referer.
-                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.SAME_ORIGIN)));
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.SAME_ORIGIN))
+                        .permissionsPolicyHeader(permissions -> permissions.policy(PERMISSIONS_POLICY))
+                        // Cross-origin isolation (Spectre). Every page loads only same-origin resources (CSP 'self')
+                        // and Google sign-in is a top-level redirect, not a popup, so the strict values break nothing.
+                        .crossOriginOpenerPolicy(coop -> coop.policy(CrossOriginOpenerPolicy.SAME_ORIGIN))
+                        .crossOriginEmbedderPolicy(coep -> coep.policy(CrossOriginEmbedderPolicy.REQUIRE_CORP))
+                        .crossOriginResourcePolicy(corp -> corp.policy(CrossOriginResourcePolicy.SAME_ORIGIN)));
         return http.build();
     }
 }

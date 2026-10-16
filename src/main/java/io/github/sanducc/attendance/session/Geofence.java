@@ -80,6 +80,11 @@ public record Geofence(double latitude, double longitude, int radiusMeters) {
 
     /** Great-circle distance by the haversine formula; good to well under a metre at classroom scale. */
     public static double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        // Spelled out (not isValidCoordinate) so the bounds visibly guard the arithmetic below; NaN fails too.
+        if (!(lat1 >= -90 && lat1 <= 90 && lat2 >= -90 && lat2 <= 90
+                && lng1 >= -180 && lng1 <= 180 && lng2 >= -180 && lng2 <= 180)) {
+            throw new IllegalArgumentException("Coordinates out of range");
+        }
         double phi1 = Math.toRadians(lat1);
         double phi2 = Math.toRadians(lat2);
         double dPhi = Math.toRadians(lat2 - lat1);

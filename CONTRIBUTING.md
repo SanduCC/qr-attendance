@@ -42,6 +42,26 @@ fails any PR whose branch doesn't follow this.
 `security.yml` also runs a full scan every Monday, CodeQL every Sunday. Actions are pinned to commit SHAs with a
 `# vX.Y.Z` comment.
 
+## Checks on the deployed app (not on PRs)
+
+| Workflow | Job | What it does | Required |
+|---|---|---|---|
+| `dast.yml` | ZAP baseline scan (informational) | OWASP ZAP **passive** baseline scan of production: spiders the public pages (≤ 1 min, 1 thread) and checks headers, CSP, cookies, caching and information leaks. Mondays 04:17 UTC, after every successful `deploy`, and by hand. Never fails on findings | no |
+
+### DAST (ZAP baseline)
+
+- Passive only, no login: ZAP never sends attack payloads to production, so it is safe during a class. Don't switch
+  it to `zap-full-scan` / an active scan against production; that needs a separate, non-production target.
+- Results: the job summary (counts per risk and one line per alert), the `zap-baseline-report` artifact (HTML, JSON,
+  Markdown) and, for runs on `master`, one issue **"ZAP baseline report (production)"** that the action opens,
+  comments on when the findings change and closes when none are left.
+- Run it by hand: Actions > *DAST (ZAP baseline)* > Run workflow, or `gh workflow run dast.yml --ref <branch>`. A
+  branch run writes no issue. The target is production unless the repo variable `DAST_TARGET_URL` (an https origin)
+  says otherwise.
+- Triage every finding: fix real ones in the app (headers live in `config/SecurityConfig.java`, with a test in
+  `SecurityHeadersTest`). Accept a false positive or an intended behaviour only in `.zap/rules.tsv`, as
+  `<rule id> TAB IGNORE TAB (<name>)` with a `#` line above it that says why.
+
 ## Merging
 
 `master` is protected: changes only land through a pull request (admins included), **no approval is needed**, but
