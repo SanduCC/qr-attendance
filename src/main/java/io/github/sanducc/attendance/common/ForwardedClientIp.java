@@ -69,7 +69,7 @@ public final class ForwardedClientIp {
 
     /** The {@code hops}-th entry from the right (the left-most if there are fewer), normalized; null if none. */
     private static String pick(List<String> entries, int hops) {
-        if (entries.isEmpty()) {
+        if (entries.isEmpty() || hops <= 0) {
             return null;
         }
         return normalize(entries.get(Math.max(0, entries.size() - hops)));

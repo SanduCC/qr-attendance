@@ -2,11 +2,14 @@ package io.github.sanducc.attendance.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Issue #39: the client IP is the X-Forwarded-For entry a trusted proxy appended, never one the client wrote. */
@@ -119,6 +122,25 @@ class ForwardedClientIpTest {
         request.addHeader("Forwarded", "for=\"" + CLIENT + "\";proto=https");
 
         assertThat(ForwardedClientIp.resolve(request, 1)).isEqualTo(CLIENT);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2, 5})
+    void theDebugSelfCheckGivesTheSameAnswer(int hops) {
+        Logger logger = (Logger) LoggerFactory.getLogger("io.github.sanducc.attendance.clientip");
+        Level before = logger.getLevel();
+        logger.setLevel(Level.DEBUG);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/a/x");
+            request.setRemoteAddr(PROXY_PEER);
+            request.addHeader("X-Forwarded-For", "1.2.3.4, " + CLIENT);
+            request.addHeader("Forwarded", "for=203.0.113.50, for=\"" + CLIENT + "\";proto=https");
+
+            assertThat(ForwardedClientIp.resolve(request, hops))
+                    .isEqualTo(ForwardedClientIp.resolve(List.of("1.2.3.4, " + CLIENT), PROXY_PEER, hops));
+        } finally {
+            logger.setLevel(before);
+        }
     }
 
     @Test
