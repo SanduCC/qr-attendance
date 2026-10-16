@@ -22,7 +22,8 @@ public class Course {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false)
+    /** Optional since V3; null when the teacher didn't give one. */
+    @Column
     private String code;
 
     @Column(name = "created_at", nullable = false)

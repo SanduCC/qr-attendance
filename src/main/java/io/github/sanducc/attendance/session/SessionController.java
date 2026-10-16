@@ -7,6 +7,7 @@ import io.github.sanducc.attendance.course.TeacherService;
 import io.github.sanducc.attendance.session.SessionService.DisplayQr;
 import io.github.sanducc.attendance.session.SessionService.OwnedSession;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.MediaType;
@@ -43,17 +44,28 @@ public class SessionController {
 
     public record RecordRow(Long id, String firstName, String lastName, String email, String checkedInAt) {}
 
-    public record RecordsResponse(boolean open, String closesAt, long checkedIn, Integer expectedHeadcount,
-                                  boolean overHeadcount, List<RecordRow> records) {}
+    /**
+     * {@code closesAtMillis} and {@code serverTimeMillis} let the projector run its "Closes in mm:ss" countdown on
+     * server time, whatever the projector laptop's clock says.
+     */
+    public record RecordsResponse(boolean open, String closesAt, long closesAtMillis, long serverTimeMillis,
+                                  long checkedIn, Integer expectedHeadcount, boolean overHeadcount,
+                                  List<RecordRow> records) {}
 
     @GetMapping("/display")
     public String display(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication, Model model) {
         OwnedSession owned = sessions.getOwnedSession(teachers.requireTeacherId(authentication), sessionId);
+        AttendanceSession session = owned.session();
+        Instant now = clock.instant();
         model.addAttribute("course", owned.course());
         model.addAttribute("sessionId", sessionId);
-        model.addAttribute("open", owned.session().isOpenAt(clock.instant()));
-        model.addAttribute("expectedHeadcount", owned.session().getExpectedHeadcount());
-        model.addAttribute("closesAt", displayTime.time(owned.session().getClosesAt()));
+        model.addAttribute("open", session.isOpenAt(now));
+        model.addAttribute("expectedHeadcount", session.getExpectedHeadcount());
+        model.addAttribute("openedDay", displayTime.day(session.getOpenedAt()));
+        model.addAttribute("opensAt", displayTime.time(session.getOpenedAt()));
+        model.addAttribute("closesAt", displayTime.time(session.getClosesAt()));
+        model.addAttribute("closesAtMillis", session.getClosesAt().toEpochMilli());
+        model.addAttribute("serverTimeMillis", now.toEpochMilli());
         return "teacher/display";
     }
 
@@ -76,8 +88,9 @@ public class SessionController {
         Integer expected = session.getExpectedHeadcount();
         // Rule 5: flag more check-ins than people the teacher expects in the room.
         boolean over = expected != null && rows.size() > expected;
-        return new RecordsResponse(session.isOpenAt(clock.instant()), displayTime.time(session.getClosesAt()),
-                rows.size(), expected, over, rows);
+        Instant now = clock.instant();
+        return new RecordsResponse(session.isOpenAt(now), displayTime.time(session.getClosesAt()),
+                session.getClosesAt().toEpochMilli(), now.toEpochMilli(), rows.size(), expected, over, rows);
     }
 
     @DeleteMapping("/records/{recordId}")

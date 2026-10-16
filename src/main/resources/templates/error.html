@@ -2,6 +2,7 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head('Something went wrong')}"></head>
 <body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
 <main class="container">
     <div class="card center">
         <p class="status-code" th:text="${status} ?: 'Error'">500</p>
@@ -13,7 +14,7 @@
         </h1>
         <p class="muted" th:if="${status == 429}">Please wait a minute and try again.</p>
         <p class="muted" th:unless="${status == 429}" th:text="${error}">Internal Server Error</p>
-        <p><a class="btn btn-primary" th:href="@{/}">Go to home page</a></p>
+        <a class="btn btn-primary" th:href="@{/}">Go to home page</a>
     </div>
 </main>
 </body>

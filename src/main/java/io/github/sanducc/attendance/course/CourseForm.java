@@ -6,11 +6,11 @@ import jakarta.validation.constraints.Size;
 public class CourseForm {
 
     @NotBlank(message = "Please enter a course name")
-    @Size(max = 200)
+    @Size(max = 200, message = "At most 200 characters")
     private String name;
 
-    @NotBlank(message = "Please enter a course code")
-    @Size(max = 50)
+    /** Optional (#30); blank is stored as null. */
+    @Size(max = 50, message = "At most 50 characters")
     private String code;
 
     public String getName() {

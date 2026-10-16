@@ -22,9 +22,11 @@ public class CourseService {
         return courses.findByTeacherIdOrderByNameAsc(teacherId);
     }
 
+    /** The code is optional: null or blank is stored as null. */
     @Transactional
     public Course createCourse(long teacherId, String name, String code) {
-        return courses.save(new Course(teacherId, name.trim(), code.trim(), clock.instant()));
+        String trimmedCode = code == null || code.isBlank() ? null : code.trim();
+        return courses.save(new Course(teacherId, name.trim(), trimmedCode, clock.instant()));
     }
 
     /** Throws NotFound both when the course doesn't exist and when another teacher owns it. */

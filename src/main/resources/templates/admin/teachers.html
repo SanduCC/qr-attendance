@@ -2,45 +2,63 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{fragments/layout :: head('Teachers · QR Attendance')}"></head>
 <body>
-<header th:replace="~{fragments/layout :: header}"></header>
-<main class="container">
-    <h1>Teachers</h1>
-    <p class="muted">Only people on this list can create courses and run attendance sessions. They sign in with
-        the Google account for the email you add here.</p>
+<header th:replace="~{fragments/layout :: header('admin')}"></header>
+<main class="container wide">
+    <div class="page-head">
+        <div>
+            <h1>Teachers</h1>
+            <p class="muted">Only people on this list can create courses and run attendance sessions. They sign in
+                with the Google account for the email you add here.</p>
+        </div>
+    </div>
 
     <div class="banner ok" role="status" th:if="${message}"><p th:text="${message}">Saved.</p></div>
     <div class="banner warn" role="alert" th:if="${error}"><p th:text="${error}">Error</p></div>
 
     <form class="card" method="post" th:action="@{/admin/teachers}" th:object="${inviteForm}">
-        <h2>Add a teacher</h2>
-        <div class="field">
-            <label for="email">Google account email</label>
-            <input type="email" th:field="*{email}" th:errorclass="invalid" maxlength="320" autocomplete="off"
-                   required>
-            <p class="field-error" th:if="${#fields.hasErrors('email')}" th:errors="*{email}">Error</p>
+        <h2 class="card-title">Add a teacher</h2>
+        <div class="form-grid inline-submit">
+            <div class="field">
+                <label for="email">Google account email</label>
+                <input type="email" th:field="*{email}" th:errorclass="invalid" maxlength="320" autocomplete="off"
+                       placeholder="name@university.ro" required>
+                <p class="field-error" th:if="${#fields.hasErrors('email')}" th:errors="*{email}">Error</p>
+            </div>
+            <div class="field submit">
+                <button type="submit" class="btn btn-primary">Add teacher</button>
+            </div>
         </div>
-        <button type="submit" class="btn btn-primary">Add teacher</button>
     </form>
 
     <div class="table-wrap">
-        <table class="table">
+        <table class="table table-stack">
             <thead>
-            <tr><th>Teacher</th><th>Status</th><th>Last sign-in</th><th class="actions"></th></tr>
+            <tr>
+                <th scope="col">Teacher</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last sign-in</th>
+                <th scope="col" class="actions"><span class="visually-hidden">Actions</span></th>
+            </tr>
             </thead>
             <tbody>
             <tr th:each="t : ${teachers}">
-                <td>
-                    <strong th:text="${t.email}">ana@university.ro</strong>
-                    <span class="small muted" th:if="${t.name != null}" th:text="${' · ' + t.name}"> · Ana Popescu</span>
-                    <span class="small muted block" th:if="${t.addedBy != null}"
-                          th:text="${'Added by ' + t.addedBy}">Added by admin</span>
+                <td data-label="Teacher">
+                    <span>
+                        <strong th:text="${t.email}">ana@university.ro</strong>
+                        <span class="small muted block" th:if="${t.name != null}" th:text="${t.name}">Ana Popescu</span>
+                        <span class="small muted block" th:if="${t.addedBy != null}"
+                              th:text="${'Added by ' + t.addedBy}">Added by admin</span>
+                    </span>
                 </td>
-                <td>
-                    <span class="badge" th:if="${t.admin}">Admin</span>
-                    <span class="badge badge-ok" th:if="${t.active}">Active</span>
-                    <span class="badge" th:unless="${t.active}">Deactivated</span>
+                <td data-label="Status">
+                    <span>
+                        <span class="badge" th:if="${t.admin}">Admin</span>
+                        <span class="badge badge-ok" th:if="${t.active}">Active</span>
+                        <span class="badge" th:unless="${t.active}">Deactivated</span>
+                    </span>
                 </td>
-                <td class="small" th:text="${t.lastLoginAt != null ? displayTime.dateTime(t.lastLoginAt) : 'never'}">never</td>
+                <td data-label="Last sign-in" class="small"
+                    th:text="${t.lastLoginAt != null ? displayTime.dateTime(t.lastLoginAt) : 'never'}">never</td>
                 <td class="actions">
                     <form th:if="${t.active and !t.admin}" class="inline" method="post"
                           th:action="@{/admin/teachers/{id}/deactivate(id=${t.id})}">
@@ -51,6 +69,9 @@
                         <button type="submit" class="btn btn-sm">Reactivate</button>
                     </form>
                 </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(teachers)}">
+                <td colspan="4" class="empty-state">No teachers yet. Add the first one above.</td>
             </tr>
             </tbody>
         </table>

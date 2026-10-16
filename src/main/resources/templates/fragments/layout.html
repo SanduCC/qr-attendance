@@ -4,7 +4,9 @@
 <!--/* Shared fragments. Pages use either:
        <head th:replace="~{fragments/layout :: head('Title')}"></head>
      or, when they need extra <head> tags:
-       <head><th:block th:replace="~{fragments/layout :: headTags('Title')}"></th:block> ...extra... </head> */-->
+       <head><th:block th:replace="~{fragments/layout :: headTags('Title')}"></th:block> ...extra... </head>
+     Top bar: ~{fragments/layout :: header('courses')} marks that nav item as the current page
+     ('courses', 'admin' or '' for none); student and error pages use header('plain'): brand only, no nav. */-->
 <head th:fragment="head(title)">
     <th:block th:replace="~{fragments/layout :: headTags(${title})}"></th:block>
 </head>
@@ -14,7 +16,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title th:text="${title}">QR Attendance</title>
-    <meta name="theme-color" content="#1d4ed8">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#121a2b" media="(prefers-color-scheme: dark)">
     <link rel="manifest" th:href="@{/manifest.webmanifest}">
     <link rel="icon" type="image/png" sizes="192x192" th:href="@{/icons/icon-192.png}">
     <link rel="apple-touch-icon" th:href="@{/icons/icon-192.png}">
@@ -22,16 +26,27 @@
     <script th:src="@{/js/sw-register.js}" defer></script>
 </th:block>
 
-<header class="topbar" th:fragment="header">
-    <a class="brand" th:href="@{/}">QR Attendance</a>
-    <nav class="topnav">
-        <a sec:authorize="hasRole('TEACHER')" th:href="@{/teacher/courses}">My courses</a>
-        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/teachers}">Teachers</a>
+<!--/* Keep this the only <header> element in this file: "~{... :: header(...)}" also matches <header> tags by name. */-->
+<header class="topbar" th:fragment="header(active)">
+    <a class="brand" th:href="@{/}"><span class="brand-mark" aria-hidden="true"></span>QR Attendance</a>
+    <nav class="topnav" aria-label="Main" th:unless="${active == 'plain'}">
+        <a sec:authorize="hasRole('TEACHER')" th:href="@{/teacher/courses}"
+           th:aria-current="${active == 'courses'} ? 'page'">My courses</a>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin/teachers}"
+           th:aria-current="${active == 'admin'} ? 'page'">Teachers</a>
         <form sec:authorize="isAuthenticated()" class="inline" method="post" th:action="@{/logout}">
             <button type="submit" class="linkbtn">Sign out</button>
         </form>
     </nav>
 </header>
+
+<!--/* Google's "G" mark for the sign-in buttons (inline SVG: no external request, allowed by the CSP). */-->
+<svg th:fragment="googleMark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+</svg>
 
 </body>
 </html>

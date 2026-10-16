@@ -3,22 +3,33 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head th:replace="~{fragments/layout :: head('QR Attendance')}"></head>
 <body>
-<header th:replace="~{fragments/layout :: header}"></header>
+<header th:replace="~{fragments/layout :: header('')}"></header>
 <main class="container">
-    <h1>QR Attendance</h1>
     <div class="card">
-        <p class="lead">Scan the QR code shown in class with your phone camera.</p>
-        <p class="muted">The link opens this site. Sign in, confirm your name, and you're checked in. No app to install.</p>
+        <p class="eyebrow">Students</p>
+        <h1>Check in by scanning the code in class</h1>
+        <ol class="steps">
+            <li>Point your phone camera at the QR code on the screen.</li>
+            <li>Sign in with Google.</li>
+            <li>Confirm your name. That's it, you're checked in.</li>
+        </ol>
+        <p class="muted small">No app to install. Each student checks in once per class, from their own phone.</p>
     </div>
 
-    <p sec:authorize="hasRole('TEACHER')">
-        <a class="btn btn-primary btn-block" th:href="@{/teacher/courses}">My courses</a>
-    </p>
-    <p sec:authorize="isAnonymous()">
+    <div class="card" sec:authorize="hasRole('TEACHER')">
+        <p class="eyebrow">Teachers</p>
+        <h2 class="card-title">Ready for class?</h2>
+        <p class="muted">Start attendance for a course in one click and put the QR code on the projector.</p>
+        <a class="btn btn-primary btn-block btn-lg" th:href="@{/teacher/courses}">Go to my courses</a>
+    </div>
+    <div class="card" sec:authorize="isAnonymous()">
+        <p class="eyebrow">Teachers</p>
+        <h2 class="card-title">Taking attendance?</h2>
+        <p class="muted">Sign in with the Google account your admin added.</p>
         <a class="btn btn-block" th:href="@{/login}">Teacher sign-in</a>
-    </p>
+    </div>
 
-    <p class="small muted"><a th:href="@{/privacy}">Privacy notice</a></p>
+    <p class="small muted center"><a th:href="@{/privacy}">Privacy notice</a></p>
 </main>
 </body>
 </html>
