@@ -137,7 +137,8 @@ public class CheckInService {
         if (session.isEmpty() || !pending.scannedAt().isBefore(session.get().getClosesAt())) {
             return new CheckInOutcome.SessionClosed();
         }
-        // Rule 7, before anything is written (not even the student row): the ID token's hd claim must match.
+        // Rule 7, before anything is written (not even the student row): the Google ID token's hd claim, or the
+        // domain of the address an email-code sign-in proved (#52), must be one of the course's domains.
         List<String> allowedDomains = allowedDomains(session.get());
         if (!WorkspaceDomains.allows(allowedDomains, user.hostedDomain())) {
             return new CheckInOutcome.WrongDomain(allowedDomains);

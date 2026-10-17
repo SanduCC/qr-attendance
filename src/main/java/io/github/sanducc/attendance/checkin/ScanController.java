@@ -8,6 +8,7 @@ import io.github.sanducc.attendance.common.ClientContext;
 import io.github.sanducc.attendance.common.DisplayTime;
 import io.github.sanducc.attendance.common.InAppBrowser;
 import io.github.sanducc.attendance.config.AttendanceProperties;
+import io.github.sanducc.attendance.emailsignin.EmailSignInProperties;
 import io.github.sanducc.attendance.course.WorkspaceDomains;
 import io.github.sanducc.attendance.session.Geofence;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,7 +24,6 @@ import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
@@ -35,7 +35,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-/** Student flow: scan → sign in → confirm name → check in → done. */
+/**
+ * Student flow: scan → sign in (Google, or the email code of #52) → confirm name → check in → done. Both
+ * sign-ins lead to the same pages and the same rules; {@link AuthenticatedUser} tells them apart by provider.
+ */
 @Controller
 @RequestMapping("/a/{sessionId}")
 public class ScanController {
@@ -45,11 +48,14 @@ public class ScanController {
     private final CheckInService checkIns;
     private final DisplayTime displayTime;
     private final AttendanceProperties properties;
+    private final EmailSignInProperties emailSignIn;
 
-    public ScanController(CheckInService checkIns, DisplayTime displayTime, AttendanceProperties properties) {
+    public ScanController(CheckInService checkIns, DisplayTime displayTime, AttendanceProperties properties,
+                          EmailSignInProperties emailSignIn) {
         this.checkIns = checkIns;
         this.displayTime = displayTime;
         this.properties = properties;
+        this.emailSignIn = emailSignIn;
     }
 
     @GetMapping
@@ -60,7 +66,7 @@ public class ScanController {
         return switch (outcome) {
             case ScanOutcome.Accepted accepted -> {
                 accepted.pending().storeIn(request.getSession(true));
-                if (authentication instanceof OAuth2AuthenticationToken) {
+                if (AuthenticatedUser.isStudentSignIn(authentication)) {
                     yield "redirect:/a/" + sessionId + "/confirm";
                 }
                 String currentUrl = properties.publicBaseUrl() + "/a/" + sessionId + "?t="
@@ -86,7 +92,7 @@ public class ScanController {
     }
 
     @GetMapping("/confirm")
-    public String confirm(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication,
+    public String confirm(@PathVariable UUID sessionId, Authentication authentication,
                           HttpServletRequest request, HttpServletResponse response, Model model) {
         AuthenticatedUser user = AuthenticatedUser.from(authentication);
         Optional<Student> student = checkIns.findStudent(user);
@@ -116,7 +122,7 @@ public class ScanController {
                           @RequestParam(name = "latitude", required = false) String latitude,
                           @RequestParam(name = "longitude", required = false) String longitude,
                           @RequestParam(name = "accuracy", required = false) String accuracy,
-                          OAuth2AuthenticationToken authentication,
+                          Authentication authentication,
                           HttpServletRequest request, HttpServletResponse response, Model model,
                           RedirectAttributes redirect) {
         AuthenticatedUser user = AuthenticatedUser.from(authentication);
@@ -170,7 +176,7 @@ public class ScanController {
     }
 
     @GetMapping("/done")
-    public String done(@PathVariable UUID sessionId, OAuth2AuthenticationToken authentication,
+    public String done(@PathVariable UUID sessionId, Authentication authentication,
                        HttpServletResponse response, Model model) {
         AuthenticatedUser user = AuthenticatedUser.from(authentication);
         Optional<Student> student = checkIns.findStudent(user);
@@ -208,18 +214,31 @@ public class ScanController {
     }
 
     /**
-     * Rule 7. The way out keeps the scan: signing in again (account chooser, with the domain as a hint) rotates the
-     * session id but keeps the pending check-in, so the student can finish within the grace period.
+     * Rule 7. The way out keeps the scan: signing in again (account chooser, with the domain as a hint, or another
+     * email address) rotates the session id but keeps the pending check-in, so the student can finish within the
+     * grace period. For the email sign-in the address's own domain is compared (its inbox was proven by the code).
      */
     private String wrongDomain(List<String> allowedDomains, AuthenticatedUser user, Model model,
                                HttpServletResponse response) {
         String domains = WorkspaceDomains.describe(allowedDomains);
+        String signedInAs = user.email() != null ? "You're signed in as " + user.email() + ". " : "";
+        if (user.provider() == Provider.EMAIL) {
+            model.addAttribute("actionUrl", "/login/email");
+            model.addAttribute("actionLabel", "Use another email address");
+            return message(model, response, HttpStatus.FORBIDDEN, "Use your school address",
+                    "This course only accepts " + domains + " addresses.",
+                    signedInAs + "Sign in with your " + domains + " email address to check in.");
+        }
         model.addAttribute("actionUrl", "/oauth2/authorization/google");
         model.addAttribute("actionLabel", "Choose another Google account");
+        model.addAttribute("actionGoogle", true);
+        if (emailSignIn.enabled()) {
+            model.addAttribute("secondaryUrl", "/login/email");
+            model.addAttribute("secondaryLabel", "Sign in with your " + domains + " email address instead");
+        }
         return message(model, response, HttpStatus.FORBIDDEN, "Use your school account",
                 "This course only accepts " + domains + " accounts.",
-                (user.email() != null ? "You're signed in as " + user.email() + ". " : "")
-                        + "Sign in with your " + domains + " Google account to check in.");
+                signedInAs + "Sign in with your " + domains + " Google account to check in.");
     }
 
     /** "about 340 m" / "about 2.3 km": rounded, so it doesn't pretend to GPS precision. */

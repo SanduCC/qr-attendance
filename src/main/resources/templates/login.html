@@ -10,6 +10,11 @@
         <p class="muted">Use your Google account. Teachers: use the account your admin added.</p>
         <a class="btn btn-google btn-block btn-lg" th:href="@{/oauth2/authorization/google}"><svg
                 th:replace="~{fragments/layout :: googleMark}"></svg>Continue with Google</a>
+        <!--/* #52: a plain link, so /login itself stays stateless (the email form's CSRF token needs a session). */-->
+        <p class="alt-signin" th:if="${emailSignIn}">
+            <span class="muted">Student without a Google account?</span>
+            <a th:href="@{/login/email}" rel="nofollow">Sign in with email</a>
+        </p>
     </div>
     <p class="small muted center">By signing in you accept our <a th:href="@{/privacy}">privacy notice</a>.</p>
 </main>

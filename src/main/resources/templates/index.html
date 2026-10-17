@@ -10,7 +10,9 @@
         <h1>Check in by scanning the code in class</h1>
         <ol class="steps">
             <li>Point your phone camera at the QR code on the screen.</li>
-            <li>Sign in with Google.</li>
+            <li th:unless="${emailSignIn}">Sign in with Google.</li>
+            <li th:if="${emailSignIn}">Sign in with Google, or with a code we email you if you have no Google
+                account.</li>
             <li>Confirm your name. That's it, you're checked in.</li>
         </ol>
         <p class="muted small">No app to install. Each student checks in once per class, from their own phone.</p>

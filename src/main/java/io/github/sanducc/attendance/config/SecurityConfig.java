@@ -113,6 +113,8 @@ public class SecurityConfig {
                                 "/css/**", "/js/**", "/icons/**",
                                 "/manifest.webmanifest", "/sw.js", "/favicon.ico", "/robots.txt",
                                 "/actuator/health").permitAll()
+                        // Email sign-in (#52): anonymous by nature. Only mapped when it is enabled (404 otherwise).
+                        .requestMatchers("/login/email", "/login/email/**").permitAll()
                         // Scan landing is public: the QR token is validated before sign-in.
                         .requestMatchers(HttpMethod.GET, "/a/*").permitAll()
                         .requestMatchers("/a/**").authenticated()

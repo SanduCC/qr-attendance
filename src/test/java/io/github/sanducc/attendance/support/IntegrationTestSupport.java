@@ -26,6 +26,7 @@ import io.github.sanducc.attendance.session.AttendanceSessionRepository;
 import io.github.sanducc.attendance.session.QrTokenService;
 import io.github.sanducc.attendance.session.SessionService;
 import io.github.sanducc.attendance.config.session.ResilientSessionRepository;
+import io.github.sanducc.attendance.support.FakeMailConfiguration.CapturingMailSender;
 import jakarta.servlet.http.Cookie;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -75,7 +76,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
 @Import({TestcontainersConfiguration.class, TestClockConfiguration.class, FakeGoogleConfiguration.class,
-        JobTriggerTestConfiguration.class})
+        JobTriggerTestConfiguration.class, FakeMailConfiguration.class})
 public abstract class IntegrationTestSupport {
 
     protected static final String RAW_TEST_IP = "127.0.0.1";
@@ -100,11 +101,14 @@ public abstract class IntegrationTestSupport {
     @Autowired protected ResilientSessionRepository httpSessions;
     /** The app's CSRF token store (SecurityConfig#csrfTokenRepository). */
     @Autowired protected CsrfTokenRepository csrfTokenRepository;
+    /** The "SMTP server" of the email sign-in (#52); every mail the app sends ends up here. */
+    @Autowired protected CapturingMailSender mail;
     @Autowired private List<SecurityFilterChain> securityFilterChains;
 
     @BeforeEach
     void resetSharedState() {
         clock.reset();
+        mail.reset();
         restoreCsrfTokenRepository();
         jdbc.execute("truncate attendance_record, student, attendance_session, course, teacher restart identity cascade");
         try (RedisConnection connection = redis.getConnectionFactory().getConnection()) {
@@ -222,6 +226,33 @@ public abstract class IntegrationTestSupport {
             throw new IllegalStateException("No 'google' client registration in the test context");
         }
         return registration;
+    }
+
+    /**
+     * Email sign-in (#52), first half: opens the email page and asks for a code for {@code email}, as this browser.
+     * Returns the code from the mail it was sent.
+     */
+    protected String requestEmailCode(Browser browser, String email) throws Exception {
+        browser.perform(get("/login/email")).andExpect(status().isOk());
+        browser.perform(post("/login/email").with(csrf()).param("email", email))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string(HttpHeaders.LOCATION, "/login/email/code"));
+        return mail.lastCodeTo(email.strip().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** Email sign-in, second half: types {@code code} on the code page of this browser. */
+    protected ResultActions enterEmailCode(Browser browser, String code) throws Exception {
+        return browser.perform(post("/login/email/code").with(csrf()).param("code", code));
+    }
+
+    /** The whole email sign-in as this browser; afterwards its HTTP session holds the login. */
+    protected ResultActions signInWithEmail(Browser browser, String email) throws Exception {
+        return enterEmailCode(browser, requestEmailCode(browser, email)).andExpect(status().is3xxRedirection());
+    }
+
+    /** For the helpers that take a login: none, the browser's HTTP session already holds it (email sign-in). */
+    protected static RequestPostProcessor sessionLogin() {
+        return request -> request;
     }
 
     // ---------------------------------------------------------------- fixtures

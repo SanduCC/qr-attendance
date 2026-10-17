@@ -29,6 +29,7 @@ class SecurityHeadersTest extends IntegrationTestSupport {
         expectSecurityHeaders(get("/")).andExpect(status().isOk());
         expectSecurityHeaders(get("/login")).andExpect(status().isOk());
         expectSecurityHeaders(get("/privacy")).andExpect(status().isOk());
+        expectSecurityHeaders(get("/login/email")).andExpect(status().isOk());
     }
 
     @Test

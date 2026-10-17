@@ -25,6 +25,8 @@ public class DeviceIdFilter extends OncePerRequestFilter {
 
     public static final String COOKIE_NAME = "device_id";
     public static final String REQUEST_ATTRIBUTE = DeviceIdFilter.class.getName() + ".deviceId";
+    /** The email sign-in pages (emailsignin.EmailSignInController). */
+    public static final String EMAIL_SIGN_IN_PATH = "/login/email";
 
     /** Browsers cap cookie lifetime at 400 days. */
     private static final Duration MAX_AGE = Duration.ofDays(400);
@@ -41,9 +43,13 @@ public class DeviceIdFilter extends OncePerRequestFilter {
         this.secureCookie = properties.security().secureCookies();
     }
 
+    /** The student pages: the scan flow, and the email sign-in (#52), which rate-limits code requests per device. */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith(request.getContextPath() + "/a/");
+        String uri = request.getRequestURI();
+        String context = request.getContextPath();
+        return !uri.startsWith(context + "/a/") && !uri.equals(context + EMAIL_SIGN_IN_PATH)
+                && !uri.startsWith(context + EMAIL_SIGN_IN_PATH + "/");
     }
 
     @Override
