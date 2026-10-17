@@ -234,6 +234,8 @@ form.inline { display: inline; margin: 0; }
 .table .actions { white-space: nowrap; text-align: right; }
 .table .actions a { display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0 .4rem; font-weight: 600; }
 .table .nowrap { white-space: nowrap; }
+/* Long names and emails break instead of widening the table (stats page; also inside stacked phone rows). */
+.table .cell-text { min-width: 0; overflow-wrap: anywhere; }
 /* Phones: stacked rows, each cell labelled from data-label. */
 @media (max-width: 39.99rem) {
   .table-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

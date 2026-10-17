@@ -131,6 +131,7 @@
 
             <div class="card-foot">
                 <a th:href="@{/teacher/courses/{id}(id=${c.id})}">History &amp; exports</a>
+                <a th:if="${c.lastSession != null}" th:href="@{/teacher/courses/{id}/stats(id=${c.id})}">Stats</a>
             </div>
         </li>
     </ul>

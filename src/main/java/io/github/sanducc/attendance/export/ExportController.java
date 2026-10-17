@@ -5,11 +5,14 @@ import io.github.sanducc.attendance.common.DisplayTime;
 import io.github.sanducc.attendance.course.TeacherService;
 import io.github.sanducc.attendance.session.SessionService;
 import io.github.sanducc.attendance.session.SessionService.OwnedSession;
+import io.github.sanducc.attendance.stats.CourseStatsService;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.UUID;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -26,14 +29,44 @@ public class ExportController {
     private final TeacherService teachers;
     private final SessionService sessions;
     private final AttendanceRecordService records;
+    private final CourseStatsService stats;
     private final DisplayTime displayTime;
+    private final Clock clock;
 
     public ExportController(TeacherService teachers, SessionService sessions, AttendanceRecordService records,
-                            DisplayTime displayTime) {
+                            CourseStatsService stats, DisplayTime displayTime, Clock clock) {
         this.teachers = teachers;
         this.sessions = sessions;
         this.records = records;
+        this.stats = stats;
         this.displayTime = displayTime;
+        this.clock = clock;
+    }
+
+    /** Per-student stats of the teacher's own course (#8); someone else's course is a 404. */
+    @GetMapping("/teacher/courses/{courseId}/stats.xlsx")
+    public ResponseEntity<byte[]> exportStatsXlsx(@PathVariable long courseId,
+                                                  OAuth2AuthenticationToken authentication) throws IOException {
+        StatsSheet sheet = statsSheet(courseId, authentication);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        XlsxExporter.write(out, sheet);
+        return attachment(out.toByteArray(), XlsxExporter.CONTENT_TYPE, sheet.filename("xlsx"));
+    }
+
+    @GetMapping("/teacher/courses/{courseId}/stats.csv")
+    public ResponseEntity<byte[]> exportStatsCsv(@PathVariable long courseId,
+                                                 OAuth2AuthenticationToken authentication) throws IOException {
+        StatsSheet sheet = statsSheet(courseId, authentication);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+        CsvExporter.write(writer, sheet);
+        return attachment(out.toByteArray(), CsvExporter.CONTENT_TYPE, sheet.filename("csv"));
+    }
+
+    private StatsSheet statsSheet(long courseId, OAuth2AuthenticationToken authentication) {
+        long teacherId = teachers.requireTeacherId(authentication);
+        return StatsSheet.of(stats.courseStats(teacherId, courseId), displayTime.zone(),
+                LocalDate.now(clock.withZone(displayTime.zone())));
     }
 
     @GetMapping("/sessions/{sessionId}/export.xlsx")
