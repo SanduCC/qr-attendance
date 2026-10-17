@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -84,7 +83,8 @@ class AdminTeachersTest extends IntegrationTestSupport {
     void onlyAdminsReachTheTeachersPage() throws Exception {
         mvc.perform(get("/admin/teachers"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/login"));
+                // Spring Security 7 redirects to the sign-in page with a relative URL (6.x: http://localhost/login).
+                .andExpect(redirectedUrl("/login"));
         mvc.perform(get("/admin/teachers").with(studentLogin("student-1", "Ana", "Pop")))
                 .andExpect(status().isForbidden());
         createTeacher("prof.a@university.example.ro");
