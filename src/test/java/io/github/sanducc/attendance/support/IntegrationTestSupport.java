@@ -1,9 +1,13 @@
 package io.github.sanducc.attendance.support;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.sanducc.attendance.checkin.AttendanceRecord;
 import io.github.sanducc.attendance.checkin.AttendanceRecordRepository;
@@ -23,6 +27,7 @@ import io.github.sanducc.attendance.session.QrTokenService;
 import io.github.sanducc.attendance.session.SessionService;
 import io.github.sanducc.attendance.config.session.ResilientSessionRepository;
 import jakarta.servlet.http.Cookie;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -37,6 +42,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.GrantedAuthority;
@@ -46,9 +52,11 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
@@ -129,6 +137,22 @@ public abstract class IntegrationTestSupport {
                     }
                 })
                 .authorities(authorities);
+    }
+
+    /**
+     * Runs the real OAuth2 login as this browser (Google faked by {@link FakeGoogleConfiguration}): the redirect to
+     * "Google", then the callback with the matching state. Returns the callback's response (the post-login redirect).
+     */
+    protected ResultActions signInWithGoogle(Browser browser, String email) throws Exception {
+        MvcResult authorize = browser.perform(get("/oauth2/authorization/google"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string(HttpHeaders.LOCATION, startsWith("https://accounts.google.com/")))
+                .andReturn();
+        String location = authorize.getResponse().getHeader(HttpHeaders.LOCATION);
+        String state = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("state");
+        assertThat(state).isNotBlank();
+        String decodedState = URLDecoder.decode(state, StandardCharsets.UTF_8);
+        return browser.perform(get("/login/oauth2/code/google").param("code", email).param("state", decodedState));
     }
 
     protected ClientRegistration google() {

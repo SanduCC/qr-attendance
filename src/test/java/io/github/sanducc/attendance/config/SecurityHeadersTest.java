@@ -32,6 +32,7 @@ class SecurityHeadersTest extends IntegrationTestSupport {
         expectSecurityHeaders(get("/js/sw-register.js")).andExpect(status().isOk());
         expectSecurityHeaders(get("/manifest.webmanifest")).andExpect(status().isOk());
         expectSecurityHeaders(get("/icons/icon-192.png")).andExpect(status().isOk());
+        expectSecurityHeaders(get("/robots.txt")).andExpect(status().isOk());
     }
 
     @Test
