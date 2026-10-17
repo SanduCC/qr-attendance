@@ -116,6 +116,8 @@
     </details>
 
     <h2 class="section-title">Sessions</h2>
+    <p th:unless="${#lists.isEmpty(sessions)}"><a th:href="@{/teacher/courses/{id}/stats(id=${course.id})}">Attendance
+        per student &rarr;</a> <span class="muted small">sessions attended, percentage, Excel and CSV</span></p>
     <div class="card empty-state" th:if="${#lists.isEmpty(sessions)}">
         <strong>No sessions yet</strong>
         Start attendance above; every session shows up here with its Excel and CSV export.

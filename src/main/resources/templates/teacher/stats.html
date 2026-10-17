@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${'Stats · ' + course.name + ' · QR Attendance'})}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header('courses')}"></header>
+<main class="container wide">
+    <p class="breadcrumb"><a th:href="@{/teacher/courses/{id}(id=${course.id})}"
+                             th:text="${'← ' + course.name}">&larr; Algorithms</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="title-row">
+                <span>Attendance stats</span>
+                <span class="badge" th:if="${course.code != null}" th:text="${course.code}">CS101</span>
+            </h1>
+            <p class="muted" th:if="${totalSessions > 0}"
+               th:text="${totalSessions + (totalSessions == 1 ? ' session' : ' sessions')
+                    + (sessionsWithoutEntries > 0 ? ' (' + sessionsWithoutEntries + ' without check-ins)' : '')
+                    + ' · ' + firstDay + (firstDay == lastDay ? '' : ' – ' + lastDay)}">10 sessions (1 without check-ins) · Fri 2 Oct 2026 – Fri 11 Dec 2026</p>
+        </div>
+        <div class="actions-row" th:if="${totalSessions > 0}">
+            <a class="btn btn-primary" th:href="@{/teacher/courses/{id}/stats.xlsx(id=${course.id})}">Download Excel</a>
+            <a class="btn" th:href="@{/teacher/courses/{id}/stats.csv(id=${course.id})}">Download CSV</a>
+        </div>
+    </div>
+
+    <div class="card empty-state" th:if="${totalSessions == 0}">
+        <strong>No sessions yet</strong>
+        Start attendance on the course page; each student's attendance shows up here.
+    </div>
+    <div class="card empty-state" th:if="${totalSessions > 0 and #lists.isEmpty(rows)}">
+        <strong>Nobody has checked in yet</strong>
+        Students show up here after their first check-in.
+    </div>
+
+    <th:block th:unless="${#lists.isEmpty(rows)}">
+        <div class="table-wrap">
+            <table class="table table-stack">
+                <thead>
+                <tr>
+                    <th scope="col" class="num">Nr.</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col" class="num">Attended</th>
+                    <th scope="col" class="num">%</th>
+                    <th scope="col">Last attended</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="r, it : ${rows}">
+                    <td data-label="Nr." class="num" th:text="${it.count}">1</td>
+                    <td data-label="Name">
+                        <span th:text="${r.lastName + ' ' + r.firstName}">Popescu Ana</span>
+                        <span class="badge badge-manual" th:if="${r.typedName}">manual</span>
+                    </td>
+                    <td data-label="Email" th:text="${r.email != null ? r.email : '–'}">ana@student.example.ro</td>
+                    <td data-label="Attended" class="num nowrap"
+                        th:text="${r.attended + ' / ' + totalSessions}">8 / 10</td>
+                    <td data-label="%" class="num" th:text="${r.percent + '%'}">80%</td>
+                    <td data-label="Last attended" class="nowrap" th:text="${r.lastAttended}">Fri 11 Dec 2026</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="small muted">Every session of the course counts, also open ones and those nobody checked in to.
+            Entries you added by hand count for the student; names typed in without an account are listed as
+            <strong>manual</strong> (the same name counts as one person<th:block th:if="${typedNames > 0}"
+                    th:text="${', ' + typedNames + ' here'}">, 2 here</th:block>). Percentages are rounded down.</p>
+    </th:block>
+</main>
+</body>
+</html>

@@ -27,7 +27,7 @@ See [CLAUDE.md](CLAUDE.md) for the full spec, anti-cheating rules and convention
 1. **My courses** (`/teacher/courses`) is the home page and shows one card per course. Each card shows the course code (if any) and the last session's date and count, e.g. "23 of 25 checked in".
 2. **Start attendance** is one click. It opens a 15-minute session (configurable) and reuses the expected headcount from the course's last session. The **Options** panel lets you set a different duration or expected headcount, or tick **Require location** (see [Location check](#location-check-optional)). The projector page opens straight away.
 3. **New course** only needs a name. The course code is optional, and so is the **Google Workspace domain lock** (see [Domain lock](#domain-lock-optional)).
-4. **History & exports** (`/teacher/courses/{id}`) lists every session of the course with its time window, Open/Closed status, count, and **Display / Excel / CSV** links. **Course settings** on the same page edits the name, code and domain lock.
+4. **History & exports** (`/teacher/courses/{id}`) lists every session of the course with its time window, Open/Closed status, count, and **Display / Excel / CSV** links. **Course settings** on the same page edits the name, code and domain lock. **Stats** shows each student's attendance across the course (see [Attendance per student](#attendance-per-student)).
 5. The **projector page** (`/sessions/{id}/display`) shows:
    - a big QR code that rotates every 15 s
    - a live "23 checked in / 25 expected" counter, with a warning when check-ins exceed the expected headcount
@@ -59,6 +59,27 @@ Each session can be downloaded in two formats:
 - **CSV** (`/sessions/{id}/export.csv`): same columns and order, with a `;` separator and a UTF-8 BOM, so Excel with a Romanian/EU locale opens it in columns with the diacritics intact.
 
 Files are named `<course code>_<date>`, or after the course name when there is no code.
+
+### Attendance per student
+
+**Stats** (`/teacher/courses/{id}/stats`, linked from the course card and the course history) shows one row per person
+who attended at least one session of the course: name, email, **sessions attended / total**, the percentage and the
+date of the last session attended, in Romanian alphabetical order. **Download Excel / CSV**
+(`/teacher/courses/{id}/stats.xlsx`, `stats.csv`) have the same conventions as the session exports (title block,
+frozen and filterable header, A4 landscape; `;` + UTF-8 BOM CSV), with the columns
+**Nr. · Last name · First name · Email · Attended · Sessions · Percentage · Last attended · Source**. Files are named
+`<course code or name>_stats_<today>`.
+
+How it counts:
+
+- **Total** is every session of the course, open and closed, also sessions nobody checked in to (the page says how
+  many). Sessions removed by the retention purge are gone from the total and from everyone's count.
+- A session counts for a student when they have an entry in it: a scan, or a manual entry the teacher added for them.
+- Manual entries for someone **without an account** are listed under the typed name, marked **manual** (Source
+  `manual`; `account` for students). The same name (ignoring case) in several sessions counts as one person; a student
+  with an account and the same name stays a separate row.
+- **Last attended** is the date of the session, not when an entry was added (a manual entry can be added days later).
+- Percentages are rounded down, so 99.5% shows as 99%, never 100%.
 
 ### Domain lock (optional)
 
@@ -280,5 +301,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
 - **Operations:** #31 custom domain · #1 upgrade to Spring Boot 4.x
-- **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course
-- **Done recently:** #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course
+- **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #9 multiple teachers per course
+- **Done recently:** #8 per-student attendance stats per course, exportable · #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course
