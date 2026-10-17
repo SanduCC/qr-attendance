@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <th:block th:replace="~{fragments/layout :: headTags('Enter your code · QR Attendance')}"></th:block>
+    <script th:src="@{/js/email-code.js}" defer></script>
+</head>
+<body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
+<main class="container">
+    <form class="card" method="post" th:action="@{/login/email/code}">
+        <p class="eyebrow">Sign in</p>
+        <h1>Enter your code</h1>
+        <p>We sent a 6-digit code to <strong class="break" th:text="${email}">ana@example.ro</strong>. It's valid for
+            <span th:text="${validityMinutes}">10</span> minutes.</p>
+        <p class="small muted">Check your spam folder if it isn't there in a minute. Don't close this page.</p>
+
+        <div class="banner ok" role="status" th:if="${resent}"><p>We sent a new code. Use the newest one.</p></div>
+        <div class="banner warn" role="alert" th:if="${error != null}"><p th:text="${error}">Error</p></div>
+
+        <div class="field">
+            <label for="code">6-digit code</label>
+            <input id="code" name="code" type="text" class="code-input" th:classappend="${error != null} ? 'invalid'"
+                   autocomplete="one-time-code" inputmode="numeric" maxlength="9"
+                   required autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">Sign in</button>
+    </form>
+
+    <form class="center resend" method="post" th:action="@{/login/email/resend}">
+        <span class="small muted">No code?</span>
+        <button id="resend" type="submit" class="linkbtn" th:data-cooldown="${cooldownSeconds}">Send a new code</button>
+        <span id="resend-wait" class="small muted" role="status" aria-live="polite"
+              th:text="${cooldownSeconds > 0} ? ${'in ' + cooldownSeconds + ' s'} : ''"></span>
+    </form>
+    <p class="center"><a th:href="@{/login/email}">Use a different email address</a></p>
+</main>
+</body>
+</html>

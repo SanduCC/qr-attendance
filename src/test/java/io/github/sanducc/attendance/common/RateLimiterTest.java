@@ -82,6 +82,21 @@ class RateLimiterTest {
     }
 
     @Test
+    void longerWindowsCountAcrossMinutesAndExpireAfterTheWindow() {
+        Duration window = Duration.ofMinutes(15);
+        long index = clock.millis() / window.toMillis();
+        assertThat(limiter.tryAcquire("mail-to:x", 2, window)).isTrue();
+        clock.advance(Duration.ofMinutes(5));
+        assertThat(limiter.tryAcquire("mail-to:x", 2, window)).isTrue();
+        assertThat(limiter.tryAcquire("mail-to:x", 2, window)).isFalse();
+        assertThat(counters).containsKey("rl:mail-to:x:" + index);
+        verify(redis, times(1)).expire(anyString(), eq(window.plusSeconds(30)));
+
+        clock.advance(Duration.ofMinutes(15));
+        assertThat(limiter.tryAcquire("mail-to:x", 2, window)).isTrue();
+    }
+
+    @Test
     void failsOpenWhenRedisIsUnavailable() {
         when(values.increment(anyString())).thenThrow(new RedisConnectionFailureException("Redis down"));
 

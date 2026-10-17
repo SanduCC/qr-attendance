@@ -20,6 +20,11 @@ attendance:
     qr-hmac-secret: test-qr-hmac-secret-0123456789abcdef-0123456789
     hash-pepper: test-hash-pepper-0123456789abcdef-0123456789abc
     secure-cookies: true
+  email-sign-in:
+    # On for the shared test context; the mail goes to support/FakeMailConfiguration, not to an SMTP server.
+    # EmailSignInDisabledTest turns it off in a context of its own.
+    enabled: true
+    from: "QR Attendance <attendance@test.example.ro>"
   jobs:
     # Tests run the jobs themselves; a real-time timer racing them would make session status assertions flaky.
     in-app-schedule: false

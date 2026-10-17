@@ -9,9 +9,15 @@
         <h1 th:text="${title}">QR code expired</h1>
         <p class="lead" th:text="${message}">This QR code is no longer valid.</p>
         <p class="muted" th:if="${hint != null}" th:text="${hint}">Scan the code on the screen again.</p>
-        <p th:if="${actionUrl != null}">
+        <p th:if="${actionUrl != null and actionGoogle == true}">
             <a class="btn btn-google btn-block btn-lg" th:href="@{${actionUrl}}"><svg
                     th:replace="~{fragments/layout :: googleMark}"></svg><span th:text="${actionLabel}">Choose another Google account</span></a>
+        </p>
+        <p th:if="${actionUrl != null and actionGoogle != true}">
+            <a class="btn btn-primary btn-block btn-lg" th:href="@{${actionUrl}}" th:text="${actionLabel}">Use another email address</a>
+        </p>
+        <p th:if="${secondaryUrl != null}">
+            <a th:href="@{${secondaryUrl}}" th:text="${secondaryLabel}">Sign in with your email address instead</a>
         </p>
     </div>
     <p class="center"><a th:href="@{/}">Go to home page</a></p>

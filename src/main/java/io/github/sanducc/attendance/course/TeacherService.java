@@ -1,5 +1,6 @@
 package io.github.sanducc.attendance.course;
 
+import io.github.sanducc.attendance.checkin.Provider;
 import io.github.sanducc.attendance.common.AuthenticatedUser;
 import io.github.sanducc.attendance.common.NotFoundException;
 import io.github.sanducc.attendance.config.AttendanceProperties;
@@ -133,6 +134,10 @@ public class TeacherService {
 
     private static String requireVerifiedEmail(OAuth2AuthenticationToken authentication) {
         AuthenticatedUser user = AuthenticatedUser.from(authentication);
+        // Defence in depth: teacher and admin access is Google-only; an email-code login (#52) is a student.
+        if (user.provider() == Provider.EMAIL) {
+            throw new AccessDeniedException("Teachers sign in with Google");
+        }
         if (!user.emailVerified() || user.email() == null) {
             throw new AccessDeniedException("Email not verified");
         }

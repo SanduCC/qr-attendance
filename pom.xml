@@ -71,6 +71,11 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
+            <!-- One-time sign-in codes for students without a Google account (#52), SMTP only, off by default. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
             <!-- Boot 4: Flyway's auto-configuration lives in its own module; flyway-core alone no longer runs it. -->
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-flyway</artifactId>

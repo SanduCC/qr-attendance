@@ -28,6 +28,23 @@ spring:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope: openid,profile,email
+  # Outgoing mail for the email sign-in codes (#52). Only used when attendance.email-sign-in.enabled is true; set
+  # through env vars only. TLS is mandatory and enforced in code (EmailSignInConfiguration): port 465 = SMTPS
+  # (implicit TLS), any other port = STARTTLS, required. Timeouts keep a slow SMTP server from hanging the page.
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.ssl.checkserveridentity: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
 server:
   port: ${PORT:8080}
@@ -49,6 +66,11 @@ server:
     webmanifest: application/manifest+json
 
 management:
+  health:
+    # The SMTP server is not part of the app's health: a mail outage only affects email sign-in, and /actuator/health
+    # must not open an SMTP connection (or fail when MAIL_HOST is unset).
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -89,6 +111,31 @@ attendance:
     # A whole class often shares one NAT'd Wi-Fi IP, so the per-IP limit must cover a class.
     per-ip-per-minute: 120
     per-device-per-minute: 10
+  email-sign-in:
+    # "No Google account? Sign in with email" for students (#52): a 6-digit code is mailed and typed in the same
+    # browser. Off unless mail is configured (MAIL_HOST, MAIL_FROM, ...); never grants the teacher or admin role.
+    enabled: ${EMAIL_SIGN_IN_ENABLED:false}
+    # Sender, e.g. "QR Attendance <attendance@example.ro>"; must be an address the SMTP provider has verified.
+    from: ${MAIL_FROM:}
+    code-validity: 10m
+    max-attempts: 5
+    # Minimum time between two codes for the same browser ("Send a new code").
+    resend-cooldown: 30s
+    # How long a request waits for the SMTP server before showing "couldn't send the code, try again".
+    send-timeout: 10s
+    limits:
+      # Codes sent to one address. Stops mail-bombing a student and caps guesses per address (5 per code).
+      sends-per-email-per-15-min: 3
+      # Codes requested from one device cookie.
+      sends-per-device-per-15-min: 5
+      # Codes requested from one IP. A class shares one NAT'd Wi-Fi IP, so this covers a class.
+      sends-per-ip-per-hour: 60
+      # All codes, app-wide: stays under the free tier of the mail provider (e.g. Brevo: 300/day).
+      sends-per-day: 250
+      # Code entries (right or wrong) from one browser session, across resends.
+      verifies-per-session-per-15-min: 10
+      # Code entries from one IP (a class again).
+      verifies-per-ip-per-15-min: 150
   geofence:
     # Optional "Require location" when starting a session (rule 6). Radius the teacher may pick, in metres.
     default-radius-m: 100

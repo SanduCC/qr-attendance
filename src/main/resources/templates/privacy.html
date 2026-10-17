@@ -10,9 +10,16 @@
         <h2>What we store</h2>
         <ul>
             <li>Your first and last name and your email address.</li>
-            <li>Your Google account ID (a number that identifies your account, not your password).</li>
+            <li>If you sign in with Google: your Google account ID (a number that identifies your account, not your
+                password).</li>
+            <li th:if="${emailSignIn}">If you sign in with a code sent to your email: your email address is what identifies your account.
+                It is the same address as above; nothing else is stored.</li>
             <li>The time you checked in to each class session.</li>
         </ul>
+        <p th:if="${emailSignIn}">When you sign in with email, we send you a one-time code through our email provider, which processes
+            your address only to deliver that message, on our behalf (a data processor under the GDPR). The code
+            is kept, as a one-way hash, only until it is used or for 10 minutes at most, and is never stored in our
+            database.</p>
         <p>Your IP address and a device identifier are stored only as salted one-way hashes. They can't be turned
             back into the original values. We use them only to stop check-in fraud, such as one phone checking in
             several people.</p>

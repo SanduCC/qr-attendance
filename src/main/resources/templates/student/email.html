@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Sign in with email · QR Attendance')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: header('plain')}"></header>
+<main class="container">
+    <form class="card" method="post" th:action="@{/login/email}">
+        <p class="eyebrow">Sign in</p>
+        <h1>Sign in with email</h1>
+        <p class="muted">We'll email you a 6-digit code. Keep this page open: you'll type the code here.</p>
+
+        <div class="banner warn" role="alert" th:if="${error != null}"><p th:text="${error}">Error</p></div>
+        <div class="banner warn" role="note" th:if="${!#strings.isEmpty(allowedDomains)}">
+            <p>This course only accepts <strong th:text="${allowedDomains}">@university.ro</strong> addresses.</p>
+        </div>
+
+        <div class="field">
+            <label for="email">Your email address</label>
+            <input id="email" name="email" type="email" th:value="${email}" th:classappend="${error != null} ? 'invalid'"
+                   autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254"
+                   required autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">Email me a code</button>
+        <p class="small muted">The code is valid for <span th:text="${validityMinutes}">10</span> minutes. Teachers
+            sign in with Google.</p>
+    </form>
+    <p class="center"><a th:href="@{/oauth2/authorization/google}">Sign in with Google instead</a></p>
+    <p class="small muted center">We store your email address to record your attendance; the email is sent through
+        our mail provider. <a th:href="@{/privacy}">Privacy notice</a></p>
+</main>
+</body>
+</html>

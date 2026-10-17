@@ -3,7 +3,7 @@
 [![CI](https://github.com/SanduCC/qr-attendance/actions/workflows/ci.yml/badge.svg)](https://github.com/SanduCC/qr-attendance/actions/workflows/ci.yml)
 [![security](https://github.com/SanduCC/qr-attendance/actions/workflows/security.yml/badge.svg)](https://github.com/SanduCC/qr-attendance/actions/workflows/security.yml)
 
-Students scan a rotating QR code shown in class, sign in with Google (Apple later), and get recorded in the day's attendance table. Each student can check in once per session, and each phone only once per session.
+Students scan a rotating QR code shown in class, sign in with Google (or, without a Google account, with a one-time code sent to their email address; Apple later), and get recorded in the day's attendance table. Each student can check in once per session, and each phone only once per session.
 
 It runs as a mobile web app / PWA, so it works on Android and iOS with no app store.
 
@@ -17,9 +17,9 @@ See [CLAUDE.md](CLAUDE.md) for the full spec, anti-cheating rules and convention
 |---|---|---|
 | **Admin** | only the Google accounts listed in `ADMIN_EMAILS` (server config, not editable in the app) | everything a teacher can, plus manage teachers at `/admin/teachers`. Only admins see the **Teachers** tab |
 | **Teacher** | a Google account an admin added at `/admin/teachers` | create courses, run attendance sessions, export attendance. Teachers see only their own courses |
-| **Student** | anyone with a Google account who scans a live QR code | check in to that session |
+| **Student** | anyone with a Google account who scans a live QR code, or anyone with an email address when [email sign-in](#email-sign-in-optional) is on | check in to that session |
 
-- Nobody becomes a teacher just by signing in. An admin adds the teacher's Google email first.
+- Nobody becomes a teacher just by signing in. An admin adds the teacher's Google email first. Teachers and admins always sign in with Google; an email-code sign-in is a student, even for a teacher's or admin's address.
 - Admins can **deactivate** a teacher, and access stops immediately: every teacher request checks the database, not only the role given at sign-in. The teacher's courses and attendance are kept. **Reactivating** them, or adding the same email again, restores the same account. Admins can't be deactivated from the UI.
 
 ## Teacher flow
@@ -88,6 +88,7 @@ A course can accept only Google Workspace accounts of your school, e.g. `univers
 - The check uses the **`hd` claim of the Google ID token**, which Google sets only for Workspace accounts. It never trusts the email address alone, so personal Gmail accounts are refused. Case doesn't matter, and a subdomain counts as a different domain.
 - It runs at check-in, before anything is written, and the student sees "This course only accepts @university.ro accounts" with a **Choose another Google account** button. Switching accounts keeps the scan, so they can still finish within the 3-minute grace period.
 - For a locked course the sign-in link also asks Google for that domain (`hd=…`, `prompt=select_account`). That's only a convenience: the server-side check is what counts.
+- With [email sign-in](#email-sign-in-optional), the proof is the domain of the address the student received the code at: it must be exactly one of the course's domains (any case; a subdomain is a different domain). A wrong address gets no code when the student came from a locked course's QR code, and the check-in refuses it in any case.
 
 ### Location check (optional)
 
@@ -101,9 +102,22 @@ Off by default, because indoor GPS is unreliable. Tick **Require location** unde
 ## Student flow
 
 1. Scan the QR code with the phone camera. This opens `/a/{sessionId}?t=…`, and the server checks the token **before** sign-in.
-2. A short privacy notice is shown (it says which school account to use when the course has a domain lock, and mentions the location check when it's on), then **Continue with Google**. In-app browsers (WhatsApp, Instagram, …) can't do Google sign-in, so the page detects them and asks the student to open the link in Chrome or Safari instead.
-3. The first time only, the student confirms their first and last name, which are pre-filled from Google. After that the names are locked; only a teacher can correct them. On a session with a location check, tapping **Check in** asks for the phone's location first.
+2. A short privacy notice is shown (it says which school account to use when the course has a domain lock, and mentions the location check when it's on), then **Continue with Google**. In-app browsers (WhatsApp, Instagram, …) can't do Google sign-in, so the page detects them and asks the student to open the link in Chrome or Safari instead. When email sign-in is on, there is also **No Google account? Sign in with email** (it works in in-app browsers too).
+3. The first time only, the student confirms their first and last name, which are pre-filled from Google (typed by the student after an email sign-in). After that the names are locked; only a teacher can correct them. On a session with a location check, tapping **Check in** asks for the phone's location first.
 4. A success screen shows the student's name and check-in time. Scanning again shows "Already checked in at 09:02".
+
+### Email sign-in (optional)
+
+For students without a Google account. **Off by default**; it needs an SMTP provider ([setup](docs/deployment.md#email-sign-in-smtp)).
+
+1. **Sign in with email** on the scan landing or the sign-in page, then enter the address.
+2. A 6-digit code arrives by email (it's in the subject too, so it shows in the phone's notification).
+3. The student types it **on the same page, in the same browser**, then confirms their name and checks in as usual. It's a code and not a link because a link would open in the mail app's browser and lose the scan, which is bound to this browser.
+
+- Codes are random, valid for 10 minutes, single use, and invalid after 5 wrong tries. They only work in the browser session that asked for them. Redis keeps only a peppered hash of a code, for at most 10 minutes, and the code is never written to the database or the logs.
+- Limits: 3 codes per address per 15 min, 5 per device per 15 min, 60 per IP per hour, 250 per day app-wide, and 10 code entries per browser per 15 min. The page never says whether an address already has an account.
+- The account is the address, trimmed and lowercased (dots and `+tags` kept). A Google account and an email sign-in with the same address are two different students.
+- The scan rules don't change: the QR token is still checked at scan time, the 3-minute grace period still applies, and so do one check-in per account and per phone, the location check and the locked names.
 
 ### Anti-cheat (summary)
 
@@ -111,13 +125,14 @@ Off by default, because indoor GPS is unreliable. Tick **Require location** unde
 |---|---|
 | Rotating QR | HMAC-SHA256 token per 15 s window; current + previous window accepted (~30 s) |
 | Scan-time validation | Token checked before login and bound to the browser's HTTP session (and device cookie); 3 min grace period to finish sign-in |
-| One check-in per account | DB unique constraint `(session_id, student_id)`; students are keyed on the Google `sub`, never email or name |
+| One check-in per account | DB unique constraint `(session_id, student_id)`; students are keyed on provider + subject (the Google `sub`, or the verified address for email sign-in), never on name |
 | One check-in per device | Signed httpOnly `device_id` cookie, only its hash stored; DB unique `(session_id, device_id_hash)` |
 | Headcount check | Display warns when check-ins exceed the expected headcount (manual entries count too) |
 | Manual entries | Teacher-only, marked `manual` with the teacher's id; no device/IP hash, so they never block or weaken a real scan. A DB check keeps every real scan's device and IP hash mandatory |
 | Rate limiting | Per IP (120/min, since a whole class can share one Wi-Fi IP) and per device (10/min), in Redis |
 | Location check (optional, off by default) | Browser geolocation vs the classroom centre captured at session start; `distance − min(accuracy, 100 m) ≤ radius`; nothing stored; a deterrent, not proof |
-| Domain lock (optional, per course) | The Google ID token's `hd` claim must be one of the course's Workspace domains; consumer Gmail has no `hd` |
+| Domain lock (optional, per course) | The Google ID token's `hd` claim must be one of the course's Workspace domains; consumer Gmail has no `hd`. For email sign-in: the verified address's domain |
+| Email sign-in (optional, off by default) | 6-digit code, 10 min, single use, 5 tries, bound to the browser session, hashed in Redis only; send and entry rate limits; never grants teacher or admin |
 
 IP addresses and device IDs are stored only as peppered hashes. Attendance data is purged after the academic year ends (default 30 Sep plus 30 days' grace).
 
@@ -239,8 +254,12 @@ All configuration comes from environment variables. Secrets are never committed;
 | `JOBS_IN_APP_SCHEDULE` | `true` | in-app timers for the retention purge (03:30 Europe/Bucharest) and auto-close (every minute). Set `false` on Cloud Run, where Cloud Scheduler triggers them |
 | `JOBS_TRIGGER_SERVICE_ACCOUNT` | *(empty = disabled)* | the Google service account whose OIDC token may call `POST /internal/jobs/daily` (Cloud Scheduler) |
 | `JOBS_TRIGGER_AUDIENCE` | `{PUBLIC_BASE_URL}/internal/jobs/daily` | the exact token audience that endpoint accepts |
+| `EMAIL_SIGN_IN_ENABLED` | `false` | turns on [email sign-in](#email-sign-in-optional). The app then refuses to start unless `MAIL_HOST` and `MAIL_FROM` are set |
+| `MAIL_HOST` / `MAIL_PORT` | *(empty)* / `587` | SMTP server, e.g. `smtp-relay.brevo.com`. Port 465 means SMTPS; any other port requires STARTTLS. Plain-text SMTP is never used |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | *(empty)* | SMTP login (`MAIL_PASSWORD` is a secret: the provider's SMTP key, not an account password) |
+| `MAIL_FROM` | *(empty)* | sender, e.g. `QR Attendance <attendance@example.ro>`; an address the provider has verified |
 
-Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits, retention, and the location check (`attendance.geofence.default-radius-m` 100, `min-radius-m` 25, `max-radius-m` 1000, `max-accuracy-credit-m` 100). Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
+Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits, retention, the email sign-in (`attendance.email-sign-in.*`: code validity, tries, resend cooldown, send timeout and limits), and the location check (`attendance.geofence.default-radius-m` 100, `min-radius-m` 25, `max-radius-m` 1000, `max-accuracy-credit-m` 100). Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
 
 **HTTP sessions** (the scan bound to the browser, the OAuth login state, the sign-in itself) are stored in Redis with Spring Session, under `qra:session:sessions:<id>`. Users stay signed in across deploys and restarts, and several app instances share them. The session cookie is `SESSION` (HttpOnly, `Secure` unless `COOKIE_SECURE=false`, SameSite=Lax). The idle timeout is `server.servlet.session.timeout` (60 min), and an open projector page keeps its session alive. If Redis is down, pages that need a session answer 503 "try again in a minute" and the rate limiter lets requests through. A session the app can't read back after an upgrade is discarded, so the user just signs in again.
 
@@ -302,4 +321,4 @@ Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The
 
 - **Operations:** #31 custom domain
 - **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #9 multiple teachers per course
-- **Done recently:** #1 upgrade to Spring Boot 4.1 · #8 per-student attendance stats per course, exportable · #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course
+- **Done recently:** #52 email sign-in for students without a Google account · #1 upgrade to Spring Boot 4.1 · #8 per-student attendance stats per course, exportable · #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course

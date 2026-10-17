@@ -11,15 +11,16 @@
         <p class="eyebrow">Check in</p>
         <h1 th:text="${courseName}">Course name</h1>
         <p class="notice">
-            To record your attendance we store your name, email, Google account ID and check-in time.
-            Your IP address and device are kept only as one-way hashes to prevent cheating.
+            To record your attendance we store your name, email, Google account ID (if you sign in with Google) and
+            check-in time. Your IP address and device are kept only as one-way hashes to prevent cheating.
             <th:block th:if="${locationRequired}">This class also checks that you're in the room: your phone's location
                 is compared with the classroom once and not stored.</th:block>
             <a th:href="@{/privacy}">Privacy notice</a>
         </p>
         <div class="banner warn" role="note" th:if="${!#strings.isEmpty(allowedDomains)}">
-            <p>Sign in with your <strong th:text="${allowedDomains}">@university.ro</strong> Google account. Personal
-                Gmail accounts can't check in to this course.</p>
+            <p>Sign in with your <strong th:text="${allowedDomains}">@university.ro</strong> Google account<th:block
+                    th:if="${emailSignIn}"> or email address</th:block>. Personal Gmail accounts can't check in to
+                this course.</p>
         </div>
 
         <th:block th:unless="${inAppBrowser.embedded()}">
@@ -27,11 +28,21 @@
                 <a class="btn btn-google btn-block btn-lg" th:href="@{/oauth2/authorization/google}"><svg
                         th:replace="~{fragments/layout :: googleMark}"></svg>Continue with Google</a>
             </p>
+            <p class="alt-signin" th:if="${emailSignIn}">
+                <span class="muted">No Google account?</span>
+                <a th:href="@{/login/email}">Sign in with email</a>
+            </p>
             <p class="small muted center">You have a few minutes to finish signing in.</p>
         </th:block>
 
         <th:block th:if="${inAppBrowser.embedded()}">
             <div class="banner warn" role="alert"><p>Google sign-in doesn't work inside this app's browser.</p></div>
+
+            <!--/* The email code works in an embedded browser: no Google page, and the code is typed right here. */-->
+            <th:block th:if="${emailSignIn}">
+                <p><a class="btn btn-primary btn-block btn-lg" th:href="@{/login/email}">Sign in with email</a></p>
+                <p class="small muted">Or, to use Google:</p>
+            </th:block>
 
             <th:block th:if="${inAppBrowser.name() == 'ANDROID'}">
                 <p>Open this page in Chrome to continue.</p>
