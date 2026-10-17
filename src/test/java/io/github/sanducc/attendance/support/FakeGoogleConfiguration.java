@@ -5,17 +5,26 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.security.oauth2.core.user.OAuth2UserAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
 
@@ -27,9 +36,10 @@ import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
  * <p>The authorization {@code code} a test sends is the e-mail address to sign in as, optionally with a Workspace
  * {@code hd} claim ({@link #code}); the subject is
  * {@code "sub-" + email}. The nonce Spring Security stored with the authorization request is echoed back as a
- * hash, exactly as Google would, so nonce validation stays on. Only the access token's scope is {@code openid},
- * so Spring Security doesn't call Google's userinfo endpoint. Nothing here affects tests that use
- * {@code oidcLogin()} (they never reach the login endpoints).
+ * hash, exactly as Google would, so nonce validation stays on. Google's userinfo endpoint is faked too: Spring
+ * Security 7 calls it on every OIDC sign-in (6.x only when the token carried {@code profile} / {@code email}, as
+ * Google's real tokens do), and the fake answers with the ID token's identity claims, as Google would. Nothing here
+ * affects tests that use {@code oidcLogin()} (they never reach the login endpoints).
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class FakeGoogleConfiguration {
@@ -88,6 +98,36 @@ public class FakeGoogleConfiguration {
             }
             return jwt.build();
         };
+    }
+
+    /**
+     * Google's userinfo endpoint: plugged into the app's {@link OidcUserService} (AppOidcUserService), whose
+     * userinfo call would otherwise go to Google over the network. Answers with the subject, email and names of the
+     * ID token. Not {@code hd}: the app must read the hosted domain from the ID token itself, never from userinfo.
+     */
+    @Bean
+    static BeanPostProcessor fakeGoogleUserInfoEndpoint() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) {
+                if (bean instanceof OidcUserService userService) {
+                    userService.setOauth2UserService(FakeGoogleConfiguration::userInfo);
+                }
+                return bean;
+            }
+        };
+    }
+
+    private static OAuth2User userInfo(OAuth2UserRequest request) {
+        OidcIdToken idToken = ((OidcUserRequest) request).getIdToken();
+        Map<String, Object> claims = new LinkedHashMap<>();
+        for (String claim : List.of("sub", "email", "email_verified", "given_name", "family_name")) {
+            Object value = idToken.getClaim(claim);
+            if (value != null) {
+                claims.put(claim, value);
+            }
+        }
+        return new DefaultOAuth2User(Set.of(new OAuth2UserAuthority(claims)), claims, "sub");
     }
 
     private static String sha256(String value) {
