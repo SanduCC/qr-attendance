@@ -1,2 +1,2 @@
 # Opens a database connection in the background while the context starts (issue #28).
-org.springframework.boot.env.EnvironmentPostProcessor=io.github.sanducc.attendance.config.DatabaseWarmUp
+org.springframework.boot.EnvironmentPostProcessor=io.github.sanducc.attendance.config.DatabaseWarmUp

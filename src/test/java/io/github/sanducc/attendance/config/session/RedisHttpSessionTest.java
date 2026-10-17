@@ -143,6 +143,24 @@ class RedisHttpSessionTest extends IntegrationTestSupport {
     }
 
     @Test
+    void theSessionCookieAndTimeoutComeFromServerServletSession() throws Exception {
+        Fixture f = openFixture();
+        Browser phone = newBrowser();
+        MvcResult scan = scan(phone, f.sessionId(), validToken(f.sessionId())).andExpect(status().isOk()).andReturn();
+
+        // server.servlet.session.cookie.* (application.yml): HttpOnly, Secure (COOKIE_SECURE, true by default),
+        // SameSite=Lax, default name. Also under MockMvc, which Boot 4 would otherwise treat as a WAR deployment.
+        String sessionCookie = scan.getResponse().getHeaders(HttpHeaders.SET_COOKIE).stream()
+                .filter(header -> header.startsWith(SESSION_COOKIE + "="))
+                .findFirst().orElseThrow(() -> new AssertionError("no SESSION cookie"));
+        assertThat(sessionCookie).contains("; Path=/", "; HttpOnly", "; Secure", "; SameSite=Lax");
+        assertThat(sessionCookie).doesNotContain("Max-Age", "Expires");
+
+        // server.servlet.session.timeout: 60m (spring.session.timeout is not set).
+        assertThat(phone.storedSession().getMaxInactiveInterval()).isEqualTo(Duration.ofMinutes(60));
+    }
+
+    @Test
     void readOnlyPollingDoesNotRewriteTheSession() throws Exception {
         Fixture f = openFixture();
         String teacherEmail = teacherRepository.findById(f.teacherId()).orElseThrow().getEmail();

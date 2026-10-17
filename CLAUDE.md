@@ -4,14 +4,14 @@
 A teacher opens an attendance session for a class. A large screen or projector shows a QR code. Students scan it with their phone camera, which opens a web page (no app install). They sign in, confirm their first and last name, and get recorded in that day's attendance table. Each student can check in **only once per session**, and nobody should be able to check in classmates who aren't in the room.
 
 ## Tech stack
-- **Backend:** Java 25 (Amazon Corretto 25), Spring Boot 3.5.x (upgrade to 4.x planned) (Web, Security, OAuth2 Client, Data JPA, Validation)
+- **Backend:** Java 25 (Amazon Corretto 25), Spring Boot 4.x (Web MVC, Security, OAuth2 Client, Data JPA, Validation)
 - **DB:** PostgreSQL 16, Flyway migrations
 - **Cache / short-lived state:** Redis (HTTP sessions via Spring Session, rate limiting). Sessions fail closed when Redis is down, the rate limiter fails open
 - **Frontend:** server-rendered Thymeleaf + a little vanilla JS. The student page must be mobile-first and load fast on bad Wi-Fi. No SPA framework unless there's a clear need.
 - **QR generation:** ZXing (server-side PNG/SVG) or `qrcode` JS on the display page
 - **Auth:** Spring Security OAuth2 login with **Google** (required for MVP) and **Apple** (phase 2)
 - **Packaging:** Docker + docker-compose (app, postgres, redis)
-- **Tests:** JUnit 5, Spring Boot Test, Testcontainers (Postgres + Redis)
+- **Tests:** JUnit 6 (Jupiter), Spring Boot Test, Testcontainers 2 (Postgres + Redis)
 
 ## Domain model
 ```

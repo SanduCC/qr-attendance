@@ -450,9 +450,11 @@ itself after its smoke test.
 To deploy an older commit instead, revert it on `master` through a PR (the workflow refuses to deploy older commits).
 
 **Deploys keep users signed in.** HTTP sessions (logins, a scanned QR token) live in Redis since #36, so a deploy
-doesn't sign anyone out, and the teacher's projector page keeps running. Only a change to Spring Security's
-serialized classes (e.g. the Boot 4 upgrade, #1) makes everyone sign in once; unreadable sessions are dropped, never
-a 500.
+doesn't sign anyone out, and the teacher's projector page keeps running. Only an incompatible change to Spring
+Security's serialized classes makes everyone sign in once; unreadable sessions are dropped, never a 500. The Boot 4
+upgrade (#1, Spring Security 6.5 → 7.1) isn't one: Security 7 keeps the serialization version (`620L`), and a session
+written by either version reads back in the other (security context with the OIDC user and roles, CSRF token, OAuth2
+authorization request, saved request), so neither the deploy nor a traffic rollback signs anyone out.
 
 ### Scheduled jobs (Cloud Scheduler)
 
