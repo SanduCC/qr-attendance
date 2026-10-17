@@ -7,6 +7,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.header.writers.CrossOriginEmbedderPolicyHeaderWriter.CrossOriginEmbedderPolicy;
 import org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter.CrossOriginOpenerPolicy;
 import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy;
@@ -87,13 +88,26 @@ public class SecurityConfig {
         return new NegatedRequestMatcher(accepts);
     }
 
+    /**
+     * Where the CSRF token lives: the HTTP session, as by default, but a rejected anonymous POST no longer creates a
+     * session to store a token nobody can use (issue #47, see {@link SessionOnlyCsrfTokenRepository}). The request
+     * handler stays Spring Security's default, the BREACH-safe {@code XorCsrfTokenRequestAttributeHandler}.
+     */
+    @Bean
+    CsrfTokenRepository csrfTokenRepository() {
+        return new SessionOnlyCsrfTokenRepository();
+    }
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             AppOidcUserService oidcUserService,
                                             LoginSuccessHandler loginSuccessHandler,
                                             WorkspaceDomainHintResolver domainHintResolver,
-                                            RequestCache requestCache) throws Exception {
+                                            RequestCache requestCache,
+                                            CsrfTokenRepository csrfTokenRepository) throws Exception {
         http
+                // CSRF stays on for every state-changing request; only where the token is stored changes.
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/login", "/privacy", "/error",
                                 "/css/**", "/js/**", "/icons/**",

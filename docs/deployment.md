@@ -230,7 +230,9 @@ With Spring Session's defaults, every poll would cost 4 commands and a class abo
 Bots and scanners probing the public URL (`/wp-login.php`, `/.env`, …) cost nothing: an anonymous GET is redirected
 to `/login` without a session. Only the app's own signed-in pages (`/teacher/courses/**`, `/admin/teachers/**`,
 `/sessions/{id}/**`, `/a/{id}/**`) save the request in a new session (2 commands), so the user gets back there after
-signing in; a valid QR scan and "Sign in with Google" create the sessions the flow needs (#44).
+signing in; a valid QR scan and "Sign in with Google" create the sessions the flow needs (#44). An anonymous POST
+(PUT, DELETE, …), such as a bot's `POST /xmlrpc.php`, gets CSRF's 403 without a session either: a CSRF token is never
+stored in a session the rejected request would have created (#47).
 
 The ZAP baseline scan (`dast.yml`: weekly and after each deploy) is passive and small: ~15-25 GET requests,
 ~10-20 Redis commands (the scan landing's rate-limit counters) and at most one cold start. That's about 100 commands
