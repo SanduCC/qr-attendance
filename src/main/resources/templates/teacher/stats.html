@@ -49,10 +49,11 @@
                 <tr th:each="r, it : ${rows}">
                     <td data-label="Nr." class="num" th:text="${it.count}">1</td>
                     <td data-label="Name">
-                        <span th:text="${r.lastName + ' ' + r.firstName}">Popescu Ana</span>
-                        <span class="badge badge-manual" th:if="${r.typedName}">manual</span>
+                        <span class="cell-text"><span th:text="${r.lastName + ' ' + r.firstName}">Popescu Ana</span>
+                            <span class="badge badge-manual" th:if="${r.typedName}">manual</span></span>
                     </td>
-                    <td data-label="Email" th:text="${r.email != null ? r.email : '–'}">ana@student.example.ro</td>
+                    <td data-label="Email"><span class="cell-text"
+                            th:text="${r.email != null ? r.email : '–'}">ana@student.example.ro</span></td>
                     <td data-label="Attended" class="num nowrap"
                         th:text="${r.attended + ' / ' + totalSessions}">8 / 10</td>
                     <td data-label="%" class="num" th:text="${r.percent + '%'}">80%</td>
