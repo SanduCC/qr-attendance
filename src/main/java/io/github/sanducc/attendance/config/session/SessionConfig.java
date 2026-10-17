@@ -2,8 +2,7 @@ package io.github.sanducc.attendance.config.session;
 
 import jakarta.servlet.DispatcherType;
 import java.time.Duration;
-import org.springframework.boot.autoconfigure.session.SessionProperties;
-import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.boot.session.autoconfigure.SessionTimeout;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,7 +27,8 @@ import org.springframework.session.web.http.SessionRepositoryFilter;
  *   <li>Non-indexed {@link RedisSessionRepository}: one hash per session with a TTL, no keyspace notifications,
  *       so no {@code CONFIG} command (Upstash doesn't allow it) and no find-by-principal index.</li>
  *   <li>Keys: {@code qra:session:sessions:<id>}, apart from the rate limiter's {@code rl:*} keys.</li>
- *   <li>Timeout: {@code server.servlet.session.timeout} (or {@code spring.session.timeout}), as before.</li>
+ *   <li>Timeout: {@code server.servlet.session.timeout} (or {@code spring.session.timeout}), as before: Boot's
+ *       {@link SessionTimeout} applies that rule.</li>
  *   <li>Flush on save (end of request) and save only attributes that were set: the cheapest modes.</li>
  *   <li>Values use JDK serialization, see {@link SessionRedisSerializer}.</li>
  * </ul>
@@ -44,11 +44,9 @@ public class SessionConfig {
 
     @Bean
     public ResilientSessionRepository sessionRepository(RedisConnectionFactory redisConnectionFactory,
-                                                        SessionProperties sessionProperties,
-                                                        ServerProperties serverProperties) {
-        Duration timeout = sessionProperties.determineTimeout(
-                () -> serverProperties.getServlet().getSession().getTimeout());
-        return new ResilientSessionRepository(redisSessionRepository(redisConnectionFactory, timeout), TOUCH_INTERVAL);
+                                                        SessionTimeout sessionTimeout) {
+        return new ResilientSessionRepository(
+                redisSessionRepository(redisConnectionFactory, sessionTimeout.getTimeout()), TOUCH_INTERVAL);
     }
 
     /** Fail closed with a clear 503 page when Redis is down; registered just outside Spring Session's filter. */

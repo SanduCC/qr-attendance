@@ -1,5 +1,6 @@
 package io.github.sanducc.attendance.config;
 
+import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -7,7 +8,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -18,6 +19,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.web.client.RestTemplate;
 
 /**
  * Verification of the Google-signed OIDC ID token that Cloud Scheduler sends with each call to
@@ -49,12 +51,24 @@ public final class JobTriggerTokens {
     public static JwtDecoder googleDecoder(String audience, String serviceAccount, Clock clock) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(GOOGLE_JWK_SET_URI)
                 .jwsAlgorithm(SignatureAlgorithm.RS256)
-                .restOperations(new RestTemplateBuilder()
-                        .connectTimeout(JWKS_TIMEOUT)
-                        .readTimeout(JWKS_TIMEOUT)
-                        .build())
+                .restOperations(jwksClient())
                 .build();
         return withValidation(decoder, audience, serviceAccount, clock);
+    }
+
+    /**
+     * What Boot 3's {@code new RestTemplateBuilder()} built here: the JDK HttpClient (the only HTTP client on the
+     * class path), 5 s connect and read timeouts, redirects followed. Boot 4 moved the builder into a separate
+     * module ({@code spring-boot-restclient}) this one call doesn't justify.
+     */
+    static RestTemplate jwksClient() {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(JWKS_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(JWKS_TIMEOUT);
+        return new RestTemplate(requestFactory);
     }
 
     /** Applies {@link #validator} to a signature-checking decoder (Google's keys in production, a test key in tests). */
