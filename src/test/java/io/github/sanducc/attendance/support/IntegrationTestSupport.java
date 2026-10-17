@@ -49,8 +49,14 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.web.DefaultSecurityFilterChain;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.session.Session;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -92,14 +98,40 @@ public abstract class IntegrationTestSupport {
     @Autowired protected AttendanceSessionRepository sessionRepository;
     @Autowired protected PepperedHasher hasher;
     @Autowired protected ResilientSessionRepository httpSessions;
+    /** The app's CSRF token store (SecurityConfig#csrfTokenRepository). */
+    @Autowired protected CsrfTokenRepository csrfTokenRepository;
+    @Autowired private List<SecurityFilterChain> securityFilterChains;
 
     @BeforeEach
     void resetSharedState() {
         clock.reset();
+        restoreCsrfTokenRepository();
         jdbc.execute("truncate attendance_record, student, attendance_session, course, teacher restart identity cascade");
         try (RedisConnection connection = redis.getConnectionFactory().getConnection()) {
             connection.serverCommands().flushAll();
         }
+    }
+
+    /**
+     * {@code SecurityMockMvcRequestPostProcessors.csrf()} replaces the {@link CsrfFilter}'s token repository with a
+     * test one wrapping a plain {@code HttpSessionCsrfTokenRepository}, for good: the filter lives in the cached
+     * application context. Put the app's repository back on the browser chain (the catch-all one) so every test,
+     * and in particular every request without {@code csrf()}, runs with the production wiring (issue #47).
+     */
+    private void restoreCsrfTokenRepository() {
+        int restored = 0;
+        for (SecurityFilterChain chain : securityFilterChains) {
+            if (chain instanceof DefaultSecurityFilterChain browserChain
+                    && browserChain.getRequestMatcher() instanceof AnyRequestMatcher) {
+                for (var filter : chain.getFilters()) {
+                    if (filter instanceof CsrfFilter csrfFilter) {
+                        ReflectionTestUtils.setField(csrfFilter, "tokenRepository", csrfTokenRepository);
+                        restored++;
+                    }
+                }
+            }
+        }
+        assertThat(restored).as("CsrfFilter of the browser filter chain").isEqualTo(1);
     }
 
     // ---------------------------------------------------------------- sign-in
