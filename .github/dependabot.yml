@@ -13,10 +13,6 @@ updates:
     labels: [dependencies, java]
     commit-message:
       prefix: "deps"
-    ignore:
-      # The Spring Boot 4.x upgrade is planned and will be done by hand (issue #1).
-      - dependency-name: "org.springframework.boot:*"
-        update-types: ["version-update:semver-major"]
     groups:
       # Minor and patch releases together in one PR. Major releases get their own PRs.
       maven-minor-patch:

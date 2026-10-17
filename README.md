@@ -123,7 +123,7 @@ IP addresses and device IDs are stored only as peppered hashes. Attendance data 
 
 ## Stack
 
-Amazon Corretto 25 (Java 25) · Spring Boot 3.5 · PostgreSQL 16 + Flyway · Redis 7 (HTTP sessions via Spring Session, rate limiting) · Thymeleaf + vanilla JS · Docker / docker compose · JUnit 5 + Testcontainers
+Amazon Corretto 25 (Java 25) · Spring Boot 4.1 (Spring Framework 7, Spring Security 7, Hibernate 7) · PostgreSQL 16 + Flyway · Redis 7 (HTTP sessions via Spring Session, rate limiting) · Thymeleaf + vanilla JS · Docker / docker compose · JUnit 6 + Testcontainers
 
 ## Quick start (local)
 
@@ -300,6 +300,6 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
-- **Operations:** #31 custom domain · #1 upgrade to Spring Boot 4.x
+- **Operations:** #31 custom domain
 - **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #9 multiple teachers per course
-- **Done recently:** #8 per-student attendance stats per course, exportable · #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course
+- **Done recently:** #1 upgrade to Spring Boot 4.1 · #8 per-student attendance stats per course, exportable · #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course
