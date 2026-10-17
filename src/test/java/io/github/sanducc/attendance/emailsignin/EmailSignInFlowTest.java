@@ -163,7 +163,9 @@ class EmailSignInFlowTest extends IntegrationTestSupport {
         String key = keys.iterator().next();
         assertThat(key).doesNotContain(ANA).doesNotContain("example");
         Map<Object, Object> stored = redis.opsForHash().entries(key);
-        assertThat(stored.values()).noneMatch(value -> String.valueOf(value).contains(code));
+        assertThat(stored).containsOnlyKeys("h", "n", "e").containsEntry("n", "0");
+        assertThat(String.valueOf(stored.get("h"))).as("a peppered hash, not the code").matches("[0-9a-f]{64}");
+        assertThat(stored.values()).noneMatch(value -> String.valueOf(value).equals(code));
         assertThat(redis.getExpire(key)).as("TTL in seconds").isBetween(590L, 600L);
     }
 

@@ -38,7 +38,7 @@ public class FakeMailConfiguration {
         private final List<MimeMessage> sent = new CopyOnWriteArrayList<>();
         private volatile Supplier<MailException> failure;
 
-        CapturingMailSender() {
+        public CapturingMailSender() {
             setHost("smtp.test.invalid");
             setPort(587);
         }
@@ -49,7 +49,15 @@ public class FakeMailConfiguration {
             if (fail != null) {
                 throw fail.get();
             }
-            sent.addAll(List.of(mimeMessages));
+            for (MimeMessage message : mimeMessages) {
+                try {
+                    // What the real transport does first: sets Content-Type and the other derived headers.
+                    message.saveChanges();
+                } catch (MessagingException e) {
+                    throw new IllegalStateException(e);
+                }
+                sent.add(message);
+            }
         }
 
         /** Makes every send throw (e.g. the SMTP server rejecting the recipient) until {@link #reset()}. */
@@ -104,10 +112,11 @@ public class FakeMailConfiguration {
 
         private static String part(Part part, String type) {
             try {
-                if (part.isMimeType(type)) {
-                    return (String) part.getContent();
+                Object content = part.getContent();
+                if (content instanceof String text) {
+                    return part.isMimeType(type) ? text : null;
                 }
-                if (part.getContent() instanceof Multipart multipart) {
+                if (content instanceof Multipart multipart) {
                     for (int i = 0; i < multipart.getCount(); i++) {
                         BodyPart child = multipart.getBodyPart(i);
                         String found = part(child, type);

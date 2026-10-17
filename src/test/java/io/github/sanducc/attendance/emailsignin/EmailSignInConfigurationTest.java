@@ -3,7 +3,10 @@ package io.github.sanducc.attendance.emailsignin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.sanducc.attendance.support.FakeMailConfiguration.CapturingMailSender;
+import jakarta.mail.internet.MimeMessage;
 import java.time.Duration;
+import org.springframework.mail.MailSendException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -74,6 +77,25 @@ class EmailSignInConfigurationTest {
 
         assertThat(configuration.emailCodeMailer(configured.getBeanProvider(JavaMailSender.class),
                 properties("QR Attendance <attendance@example.ro>"))).isNotNull();
+    }
+
+    @Test
+    void theMailerBuildsAPlainTextAndHtmlMessageWithTheCodeInTheSubject() throws Exception {
+        CapturingMailSender sender = new CapturingMailSender();
+        EmailCodeMailer mailer = new EmailCodeMailer(sender, properties("QR Attendance <attendance@example.ro>"));
+
+        assertThat(mailer.send("ana@example.ro", "042917")).isTrue();
+
+        assertThat(sender.lastCodeTo("ana@example.ro")).isEqualTo("042917");
+        MimeMessage message = sender.sent().getFirst();
+        assertThat(message.getSubject()).isEqualTo("042917 is your QR Attendance sign-in code");
+        assertThat(message.getFrom()[0].toString()).isEqualTo("QR Attendance <attendance@example.ro>");
+        assertThat(CapturingMailSender.plainText(message)).contains("042917").doesNotContain("<");
+        assertThat(CapturingMailSender.html(message)).contains("042917").contains("<html");
+
+        sender.failWith(() -> new MailSendException("550 rejected ana@example.ro"));
+        assertThat(mailer.send("ana@example.ro", "111111")).isFalse();
+        mailer.destroy();
     }
 
     @Test
