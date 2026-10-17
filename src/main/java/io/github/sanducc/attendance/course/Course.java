@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.List;
 
 @Entity
 @Table(name = "course")
@@ -29,6 +30,10 @@ public class Course {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** Since V5 (#4): comma-separated Google Workspace domains, see {@link WorkspaceDomains}; null = no lock. */
+    @Column(name = "allowed_domains")
+    private String allowedDomains;
+
     protected Course() {
     }
 
@@ -37,6 +42,17 @@ public class Course {
         this.name = name;
         this.code = code;
         this.createdAt = createdAt;
+    }
+
+    /** Name, code and domain lock as edited by the teacher; the domains must already be normalized. */
+    void update(String name, String code, List<String> allowedDomains) {
+        this.name = name;
+        this.code = code;
+        setAllowedDomains(allowedDomains);
+    }
+
+    void setAllowedDomains(List<String> allowedDomains) {
+        this.allowedDomains = WorkspaceDomains.toColumn(allowedDomains);
     }
 
     public Long getId() {
@@ -57,5 +73,14 @@ public class Course {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    /** The Workspace domains whose accounts may check in; empty = any Google account (rule 7 off). */
+    public List<String> getAllowedDomains() {
+        return WorkspaceDomains.fromColumn(allowedDomains);
+    }
+
+    public boolean isDomainLocked() {
+        return !getAllowedDomains().isEmpty();
     }
 }

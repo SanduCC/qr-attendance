@@ -1,6 +1,7 @@
 package io.github.sanducc.attendance.config;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,6 +17,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * The security headers are on every kind of response the public can reach: pages, static assets, the scan landing's
  * error page, redirects to sign-in and 404s. These are what the ZAP baseline scan of production checks
  * (.github/workflows/dast.yml); a header missing here would show up there as a finding.
+ *
+ * <p>Permissions-Policy turns off every browser feature no page uses, except geolocation, which is
+ * {@code geolocation=(self)}: the optional location check (#3, rule 6) reads it on the teacher's start-options form
+ * and on the student's confirm page, so those two pages are checked here too.
  */
 class SecurityHeadersTest extends IntegrationTestSupport {
 
@@ -51,6 +56,21 @@ class SecurityHeadersTest extends IntegrationTestSupport {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void thePagesThatAskForTheLocationMayUseGeolocation() throws Exception {
+        Fixture f = openFixture();
+        // The student's confirm page (after a scan) and the teacher's course page with the start options.
+        Browser phone = newBrowser();
+        scan(phone, f.sessionId(), validToken(f.sessionId())).andExpect(status().isOk());
+        phone.perform(get("/a/{id}/confirm", f.sessionId()).with(studentLogin("sub-geo", "Ana", "Pop")))
+                .andExpect(status().isOk())
+                .andExpectAll(securityHeaders());
+        String teacher = teacherRepository.findById(f.teacherId()).orElseThrow().getEmail();
+        expectSecurityHeaders(get("/teacher/courses/{id}", f.courseId()).with(teacherLogin(teacher)))
+                .andExpect(status().isOk());
+        expectSecurityHeaders(get("/teacher/courses").with(teacherLogin(teacher))).andExpect(status().isOk());
+    }
+
     private ResultActions expectSecurityHeaders(MockHttpServletRequestBuilder request) throws Exception {
         return mvc.perform(request).andExpectAll(securityHeaders());
     }
@@ -64,7 +84,9 @@ class SecurityHeadersTest extends IntegrationTestSupport {
                 header().string("Referrer-Policy", "same-origin"),
                 header().string("Permissions-Policy", SecurityConfig.PERMISSIONS_POLICY),
                 header().string("Permissions-Policy", containsString("camera=()")),
-                header().string("Permissions-Policy", containsString("geolocation=()")),
+                // The location check (#3) needs geolocation, for our own origin only.
+                header().string("Permissions-Policy", containsString("geolocation=(self)")),
+                header().string("Permissions-Policy", not(containsString("geolocation=()"))),
                 header().string("Cross-Origin-Opener-Policy", "same-origin"),
                 header().string("Cross-Origin-Embedder-Policy", "require-corp"),
                 header().string("Cross-Origin-Resource-Policy", "same-origin"),

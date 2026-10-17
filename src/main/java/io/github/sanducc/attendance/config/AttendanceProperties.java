@@ -27,7 +27,8 @@ public record AttendanceProperties(
         @Valid @NotNull Sessions session,
         @Valid @NotNull Qr qr,
         @Valid @NotNull RateLimit rateLimit,
-        @Valid @NotNull Retention retention) {
+        @Valid @NotNull Retention retention,
+        @Valid @NotNull GeofenceSettings geofence) {
 
     public AttendanceProperties {
         publicBaseUrl = publicBaseUrl == null ? null : publicBaseUrl.replaceAll("/+$", "");
@@ -61,6 +62,24 @@ public record AttendanceProperties(
 
         public MonthDay academicYearEndDay() {
             return MonthDay.parse("--" + academicYearEnd);
+        }
+    }
+
+    /**
+     * Optional geofence (rule 6, #3): the radius a teacher may choose when starting a session, and how much of a
+     * phone's reported accuracy is credited to the student (see {@code session.Geofence}).
+     */
+    public record GeofenceSettings(
+            @Min(1) int defaultRadiusM,
+            @Min(1) int minRadiusM,
+            @Min(1) int maxRadiusM,
+            @Min(0) int maxAccuracyCreditM) {
+
+        public GeofenceSettings {
+            if (minRadiusM > maxRadiusM || defaultRadiusM < minRadiusM || defaultRadiusM > maxRadiusM) {
+                throw new IllegalArgumentException(
+                        "attendance.geofence: need min-radius-m <= default-radius-m <= max-radius-m");
+            }
         }
     }
 }

@@ -36,11 +36,12 @@ public class SecurityConfig {
             "frame-ancestors 'none'");
 
     /**
-     * Browser features no page uses. The clipboard (landing page "copy link") is left alone. The geofence (#3)
-     * will need {@code geolocation=(self)}.
+     * Browser features no page uses. The clipboard (landing page "copy link") is left alone. Geolocation is allowed
+     * for our own origin only ({@code geolocation=(self)}): the optional location check (#3, rule 6) reads it on the
+     * teacher's start-options form and the student's confirm page; no third-party frame may use it.
      */
     static final String PERMISSIONS_POLICY = String.join(", ",
-            "accelerometer=()", "browsing-topics=()", "camera=()", "display-capture=()", "geolocation=()",
+            "accelerometer=()", "browsing-topics=()", "camera=()", "display-capture=()", "geolocation=(self)",
             "gyroscope=()", "magnetometer=()", "microphone=()", "midi=()", "payment=()", "usb=()");
 
     /**
@@ -90,6 +91,7 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             AppOidcUserService oidcUserService,
                                             LoginSuccessHandler loginSuccessHandler,
+                                            WorkspaceDomainHintResolver domainHintResolver,
                                             RequestCache requestCache) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
@@ -106,6 +108,8 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.requestCache(requestCache))
                 .oauth2Login(oauth -> oauth
                         .loginPage("/login")
+                        // Rule 7: hd hint for domain-locked courses (the ID token's hd claim is what's checked).
+                        .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(domainHintResolver))
                         .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
                         .successHandler(loginSuccessHandler))
                 .logout(logout -> logout.logoutSuccessUrl("/"))

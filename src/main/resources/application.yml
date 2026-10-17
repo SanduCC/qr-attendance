@@ -89,6 +89,14 @@ attendance:
     # A whole class often shares one NAT'd Wi-Fi IP, so the per-IP limit must cover a class.
     per-ip-per-minute: 120
     per-device-per-minute: 10
+  geofence:
+    # Optional "Require location" when starting a session (rule 6). Radius the teacher may pick, in metres.
+    default-radius-m: 100
+    min-radius-m: 25
+    max-radius-m: 1000
+    # A student passes when distance - min(reported accuracy, this) <= radius. Caps how far a phone's (claimed)
+    # inaccuracy can stretch the fence.
+    max-accuracy-credit-m: 100
   retention:
     academic-year-end: "09-30"
     grace-days: 30
