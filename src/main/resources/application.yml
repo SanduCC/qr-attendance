@@ -48,18 +48,18 @@ server:
   mime-mappings:
     webmanifest: application/manifest+json
 
-logging:
-  level:
-    # "Flyway upgrade recommended: PostgreSQL 18 is newer than this version of Flyway" at every start (Neon runs
-    # PG 18, Boot 3.5 ships Flyway 11.7). Goes away with the Flyway that comes with the Boot 4 upgrade (#1); remove
-    # this line then.
-    org.flywaydb.core.internal.database.base.Database: error
-
 management:
   endpoints:
     web:
       exposure:
         include: health
+  endpoint:
+    health:
+      probes:
+        # Boot 4 turns the liveness/readiness probes on everywhere (Boot 3: only on Kubernetes / Cloud Foundry), which
+        # adds their state indicators and "groups" to /actuator/health. Cloud Run's probes and the deploy smoke test
+        # use plain /actuator/health (database + Redis), so keep it as it was.
+        enabled: false
 
 attendance:
   startup:
