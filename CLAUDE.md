@@ -81,6 +81,8 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
 | GET | `/teacher/courses` | teacher | list courses |
 | POST | `/teacher/courses/{id}/edit` | teacher | edit name, code, Workspace domain lock |
 | POST | `/teacher/courses/{id}/sessions` | teacher | open session (optionally with a location check) |
+| GET | `/teacher/courses/{id}/stats` | teacher | per-student attendance across the course (attended / total, %, last attended) |
+| GET | `/teacher/courses/{id}/stats.xlsx` · `stats.csv` | teacher | export the per-student stats |
 | GET | `/sessions/{id}/display` | teacher | QR + live counter page |
 | GET | `/sessions/{id}/qr-token` | teacher | current token (polled every ~10s) |
 | GET | `/sessions/{id}/records` | teacher | JSON/SSE list of check-ins |
@@ -121,7 +123,8 @@ src/main/java/.../attendance/
   course/        Course entity, repo, service, controller
   session/       AttendanceSession, QR token service, display controller
   checkin/       Student, AttendanceRecord, check-in service + controller
-  export/        CSV export
+  export/        CSV / XLSX export (sessions and per-student stats)
+  stats/         per-student stats per course (aggregate queries, access via CourseService.getOwnedCourse)
   common/        errors, device-id filter, rate limiter
 src/main/resources/
   db/migration/  Flyway V1__init.sql ...
@@ -146,8 +149,8 @@ Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HAS
 
 ## MVP scope
 **In:** Google login, courses, sessions, rotating QR, one-per-account + one-per-device, live teacher table, CSV export.
-**Later:** Apple login, stats per student, multiple teachers per course.
-**Done after the MVP:** teachers edit student names (#5), manual entry by the teacher (#10), geofence (#3), Workspace domain lock (#4).
+**Later:** Apple login, multiple teachers per course.
+**Done after the MVP:** teachers edit student names (#5), manual entry by the teacher (#10), geofence (#3), Workspace domain lock (#4), per-student stats per course (#8).
 
 ## When working on this repo
 - Don't weaken any anti-cheating rule without asking.

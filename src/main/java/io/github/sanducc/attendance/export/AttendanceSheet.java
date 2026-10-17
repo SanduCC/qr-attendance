@@ -1,11 +1,10 @@
 package io.github.sanducc.attendance.export;
 
 import io.github.sanducc.attendance.checkin.RecordView;
+import io.github.sanducc.attendance.common.RomanianCollator;
 import io.github.sanducc.attendance.session.SessionService.OwnedSession;
 import java.text.Collator;
 import java.text.Normalizer;
-import java.text.ParseException;
-import java.text.RuleBasedCollator;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -14,7 +13,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * What both export formats show, built in one place: a title block and the check-ins sorted by
@@ -34,18 +32,6 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final int MAX_SLUG_LENGTH = 40;
-
-    /**
-     * The JDK's built-in "ro" rules predate the comma-below letters (Ș U+0218, Ț U+021A), so they would sort
-     * "Șerban" between "Sârbu" and "Stan", and they put Â before Ă. This tailoring follows the Romanian alphabet
-     * (A Ă Â B … I Î … S Ș T Ț …), with the legacy cedilla forms (Ş, Ţ) treated as variants of Ș, Ț.
-     */
-    private static final String ROMANIAN_TAILORING = "& A < ă, Ă < â, Â"
-            + " & I < î, Î"
-            + " & S < ș, Ș ; ş, Ş"
-            + " & T < ț, Ț ; ţ, Ţ";
-    private static final String ROMANIAN_RULES = ((RuleBasedCollator) Collator.getInstance(Locale.forLanguageTag("ro")))
-            .getRules() + ROMANIAN_TAILORING;
 
     public AttendanceSheet {
         rows = List.copyOf(rows);
@@ -71,9 +57,7 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
 
     public static AttendanceSheet of(String courseName, String courseCode, Instant openedAt, Instant closesAt,
                                      Integer expectedHeadcount, List<RecordView> records, ZoneId zone) {
-        String name = courseName == null ? "" : courseName.strip();
-        String code = courseCode == null ? "" : courseCode.strip();
-        String title = code.isEmpty() ? name : name + " (" + code + ")";
+        String title = courseTitle(courseName, courseCode);
 
         ZonedDateTime opened = openedAt.atZone(zone);
         long manual = records.stream().filter(RecordView::manual).count();
@@ -82,7 +66,7 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
                 + (manual == 0 ? "" : " (" + manual + " manual)")
                 + (expectedHeadcount == null ? "" : " / expected " + expectedHeadcount);
 
-        String filenameBase = filenameBase(code, name) + "_" + DATE.format(opened);
+        String filenameBase = filenameBase(courseCode, courseName) + "_" + DATE.format(opened);
 
         Collator collator = romanianCollator();
         Comparator<RecordView> order = Comparator
@@ -104,13 +88,14 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
 
     /** Collation for Romanian names; a new instance per call because {@link Collator} is not thread-safe. */
     static Collator romanianCollator() {
-        try {
-            RuleBasedCollator collator = new RuleBasedCollator(ROMANIAN_RULES);
-            collator.setDecomposition(Collator.CANONICAL_DECOMPOSITION);
-            return collator;
-        } catch (ParseException e) {
-            throw new IllegalStateException("Invalid Romanian collation rules", e);
-        }
+        return RomanianCollator.create();
+    }
+
+    /** "Name (CODE)", or just the name when the course has no code. */
+    static String courseTitle(String courseName, String courseCode) {
+        String name = courseName == null ? "" : courseName.strip();
+        String code = courseCode == null ? "" : courseCode.strip();
+        return code.isEmpty() ? name : name + " (" + code + ")";
     }
 
     /**

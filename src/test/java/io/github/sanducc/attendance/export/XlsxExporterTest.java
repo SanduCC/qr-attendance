@@ -24,7 +24,7 @@ import org.dhatim.fastexcel.reader.Row;
 import org.dhatim.fastexcel.reader.Sheet;
 import org.junit.jupiter.api.Test;
 
-class XlsxExporterTest {
+public class XlsxExporterTest {
 
     private static final ZoneId BUCHAREST = ZoneId.of("Europe/Bucharest");
     private static final Instant OPENED = Instant.parse("2026-10-16T06:00:00Z");
@@ -147,14 +147,14 @@ class XlsxExporterTest {
         assertThat(XlsxExporter.width("Email", Arrays.asList(null, "x".repeat(200)))).isEqualTo(50);
     }
 
-    // ------------------------------------------------------------------ helpers (also used by ExportTest)
+    // ------------------------------------------------------------------ helpers (also used by ExportTest, CourseStatsTest)
 
-    static ReadableWorkbook open(byte[] xlsx) throws IOException {
+    public static ReadableWorkbook open(byte[] xlsx) throws IOException {
         return new ReadableWorkbook(new ByteArrayInputStream(xlsx), new ReadingOptions(true, false));
     }
 
     /** The row with this 0-based index, or null if the sheet has no such row (blank rows aren't written). */
-    static Row rowAt(List<Row> rows, int index) {
+    public static Row rowAt(List<Row> rows, int index) {
         return rows.stream().filter(r -> r.getRowNum() == index + 1).findFirst().orElse(null);
     }
 
@@ -163,7 +163,7 @@ class XlsxExporterTest {
     }
 
     /** The raw sheet XML, read through the zip's central directory (the entries use data descriptors). */
-    static String sheetXml(byte[] xlsx) throws IOException {
+    public static String sheetXml(byte[] xlsx) throws IOException {
         try (ZipFile zip = ZipFile.builder().setSeekableByteChannel(new SeekableInMemoryByteChannel(xlsx)).get()) {
             ZipArchiveEntry entry = zip.getEntry("xl/worksheets/sheet1.xml");
             assertThat(entry).as("xl/worksheets/sheet1.xml in the workbook").isNotNull();

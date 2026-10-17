@@ -37,6 +37,26 @@ public final class CsvExporter {
         out.flush();
     }
 
+    /** The per-student stats (#8): same conventions; the percentage is written as e.g. "80%", dates as yyyy-MM-dd. */
+    public static void write(Writer out, StatsSheet sheet) throws IOException {
+        out.write(BOM);
+        writeLine(out, StatsSheet.HEADERS);
+        for (StatsSheet.Row r : sheet.rows()) {
+            List<String> cells = new ArrayList<>(StatsSheet.HEADERS.size());
+            cells.add(Integer.toString(r.nr()));
+            cells.add(r.lastName());
+            cells.add(r.firstName());
+            cells.add(r.email());
+            cells.add(Long.toString(r.attended()));
+            cells.add(Long.toString(r.sessions()));
+            cells.add(r.percent() + "%");
+            cells.add(DateTimeFormatter.ISO_LOCAL_DATE.format(r.lastAttended()));
+            cells.add(r.source());
+            writeLine(out, cells);
+        }
+        out.flush();
+    }
+
     private static void writeLine(Writer out, List<String> values) throws IOException {
         StringBuilder line = new StringBuilder();
         for (String value : values) {
