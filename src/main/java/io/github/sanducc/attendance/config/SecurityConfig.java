@@ -1,14 +1,26 @@
 package io.github.sanducc.attendance.config;
 
+import java.util.Set;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.CrossOriginEmbedderPolicyHeaderWriter.CrossOriginEmbedderPolicy;
 import org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter.CrossOriginOpenerPolicy;
 import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
+import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.accept.HeaderContentNegotiationStrategy;
 
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {
@@ -32,16 +44,60 @@ public class SecurityConfig {
             "accelerometer=()", "browsing-topics=()", "camera=()", "display-capture=()", "geolocation=(self)",
             "gyroscope=()", "magnetometer=()", "microphone=()", "midi=()", "payment=()", "usb=()");
 
+    /**
+     * The pre-login request a signed-out visitor is sent back to after signing in (issue #44). Saving it creates an
+     * HTTP session, i.e. a Redis write and a {@code SESSION} cookie, so only the app's own signed-in pages qualify:
+     * GET under the teacher, admin, session and student controllers ({@code /teacher/courses/**},
+     * {@code /admin/teachers/**}, {@code /sessions/{id}/**}, {@code /a/{id}/**}, e.g. a student reopening their
+     * "done" page after the session expired). The patterns name the controllers' prefixes, not just
+     * {@code /admin/**}, because bots probe {@code /admin}, {@code /admin/login.php} and the like. Every other
+     * anonymous request ({@code /wp-login.php}, {@code /.env}, ...) is still redirected to {@code /login}, but
+     * statelessly. Spring's default exclusions stay: XHR, JSON, multipart, event-stream and favicon requests are
+     * never saved.
+     *
+     * <p>The scan flow doesn't depend on this: {@code GET /a/{id}?t=} is public and stores its own
+     * {@code PendingCheckIn}, which {@link LoginSuccessHandler} checks first. The OAuth2 login itself
+     * ({@code /oauth2/authorization/google}) still creates the session its authorization request needs.
+     */
+    @Bean
+    RequestCache requestCache() {
+        PathPatternRequestMatcher.Builder paths = PathPatternRequestMatcher.withDefaults();
+        RequestMatcher deepLink = new OrRequestMatcher(
+                paths.matcher(HttpMethod.GET, "/teacher/courses/**"),
+                paths.matcher(HttpMethod.GET, "/admin/teachers/**"),
+                paths.matcher(HttpMethod.GET, "/sessions/*/**"),
+                paths.matcher(HttpMethod.GET, "/a/*/**"));
+        // The exclusions Spring Security's RequestCacheConfigurer gives its default cache (a custom cache replaces
+        // that default, matcher included).
+        RequestMatcher springDefaults = new AndRequestMatcher(
+                new NegatedRequestMatcher(paths.matcher("/favicon.*")),
+                notAccepting(MediaType.APPLICATION_JSON),
+                new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest")),
+                notAccepting(MediaType.MULTIPART_FORM_DATA),
+                notAccepting(MediaType.TEXT_EVENT_STREAM));
+        HttpSessionRequestCache cache = new HttpSessionRequestCache();
+        cache.setRequestMatcher(new AndRequestMatcher(deepLink, springDefaults));
+        return cache;
+    }
+
+    private static RequestMatcher notAccepting(MediaType mediaType) {
+        MediaTypeRequestMatcher accepts =
+                new MediaTypeRequestMatcher(new HeaderContentNegotiationStrategy(), mediaType);
+        accepts.setIgnoredMediaTypes(Set.of(MediaType.ALL));
+        return new NegatedRequestMatcher(accepts);
+    }
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             AppOidcUserService oidcUserService,
                                             LoginSuccessHandler loginSuccessHandler,
-                                            WorkspaceDomainHintResolver domainHintResolver) throws Exception {
+                                            WorkspaceDomainHintResolver domainHintResolver,
+                                            RequestCache requestCache) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/login", "/privacy", "/error",
                                 "/css/**", "/js/**", "/icons/**",
-                                "/manifest.webmanifest", "/sw.js", "/favicon.ico",
+                                "/manifest.webmanifest", "/sw.js", "/favicon.ico", "/robots.txt",
                                 "/actuator/health").permitAll()
                         // Scan landing is public: the QR token is validated before sign-in.
                         .requestMatchers(HttpMethod.GET, "/a/*").permitAll()
@@ -49,6 +105,7 @@ public class SecurityConfig {
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .requestMatchers("/teacher/**", "/sessions/**").hasRole("TEACHER")
                         .anyRequest().authenticated())
+                .requestCache(cache -> cache.requestCache(requestCache))
                 .oauth2Login(oauth -> oauth
                         .loginPage("/login")
                         // Rule 7: hd hint for domain-locked courses (the ID token's hd claim is what's checked).
