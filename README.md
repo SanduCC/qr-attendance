@@ -32,8 +32,21 @@ See [CLAUDE.md](CLAUDE.md) for the full spec, anti-cheating rules and convention
    - a big QR code that rotates every 15 s
    - a live "23 checked in / 25 expected" counter, with a warning when check-ins exceed the expected headcount
    - a **Closes in mm:ss** countdown and a **Fullscreen** button (where the browser supports it)
-   - a live attendance table, refreshed every 3 s, where you can remove a suspicious entry
+   - a live attendance table, refreshed every 3 s, where you can remove a suspicious entry, **Edit** a student's name, or **Add entry** by hand for someone who couldn't scan (see below)
    - **Close session**. When the session is closed, the page shows the final count and the download buttons.
+
+### Fixing the list: names and manual entries
+
+The attendance table on the projector page (also for a closed session, opened from the course history) lets the teacher fix the list:
+
+- **Edit** corrects a student's first and last name, with the same rules as the student's own name form (letters, spaces, hyphens, apostrophes, dots; trimmed). The name belongs to the student, so the correction shows in every session and every export. Students still can't change their own name after the first check-in.
+- **Add entry** adds someone who is in the room but couldn't scan (dead phone, no account). Pick one of the course's students (anyone who has checked in to it before), or type a name for someone without an account. The entry:
+  - is marked **manual** in the table and in the exports, and records which teacher added it;
+  - has no device or IP hash, so it never blocks a real check-in from a phone, and real check-ins keep all their anti-cheat checks;
+  - counts in the counter and the headcount warning;
+  - can't be added twice: a student who is already in the session (scanned or added) gets "Already checked in at 09:02", and a student added by hand who scans later sees the same;
+  - can be removed like any other entry, and is purged with its session after the academic year.
+- Both work while the session is open and after it has closed. Every change is logged with ids only (teacher, record, student, session), never names.
 
 ### Exports
 
@@ -41,7 +54,7 @@ Each session can be downloaded in two formats:
 
 - **Excel (.xlsx)** (`/sessions/{id}/export.xlsx`)
   - a title block: course name and code, then date, time window and "checked in / expected"
-  - columns **Nr. · Last name · First name · Email · Check-in time**, sorted in Romanian alphabetical order (Ă, Â, Î, Ș, Ț in their proper places)
+  - columns **Nr. · Last name · First name · Email · Check-in time · Source**, sorted in Romanian alphabetical order (Ă, Â, Î, Ș, Ț in their proper places). Source is `scan` or `manual` (added by the teacher; bold in Excel), and the title block says how many were manual
   - a frozen, filterable header row, set up to print on A4
 - **CSV** (`/sessions/{id}/export.csv`): same columns and order, with a `;` separator and a UTF-8 BOM, so Excel with a Romanian/EU locale opens it in columns with the diacritics intact.
 
@@ -68,7 +81,7 @@ Off by default, because indoor GPS is unreliable. Tick **Require location** unde
 
 1. Scan the QR code with the phone camera. This opens `/a/{sessionId}?t=…`, and the server checks the token **before** sign-in.
 2. A short privacy notice is shown (it says which school account to use when the course has a domain lock, and mentions the location check when it's on), then **Continue with Google**. In-app browsers (WhatsApp, Instagram, …) can't do Google sign-in, so the page detects them and asks the student to open the link in Chrome or Safari instead.
-3. The first time only, the student confirms their first and last name, which are pre-filled from Google. After that the names are locked (only teachers will be able to edit them, #5). On a session with a location check, tapping **Check in** asks for the phone's location first.
+3. The first time only, the student confirms their first and last name, which are pre-filled from Google. After that the names are locked; only a teacher can correct them. On a session with a location check, tapping **Check in** asks for the phone's location first.
 4. A success screen shows the student's name and check-in time. Scanning again shows "Already checked in at 09:02".
 
 ### Anti-cheat (summary)
@@ -79,7 +92,8 @@ Off by default, because indoor GPS is unreliable. Tick **Require location** unde
 | Scan-time validation | Token checked before login and bound to the browser's HTTP session (and device cookie); 3 min grace period to finish sign-in |
 | One check-in per account | DB unique constraint `(session_id, student_id)`; students are keyed on the Google `sub`, never email or name |
 | One check-in per device | Signed httpOnly `device_id` cookie, only its hash stored; DB unique `(session_id, device_id_hash)` |
-| Headcount check | Display warns when check-ins exceed the expected headcount |
+| Headcount check | Display warns when check-ins exceed the expected headcount (manual entries count too) |
+| Manual entries | Teacher-only, marked `manual` with the teacher's id; no device/IP hash, so they never block or weaken a real scan. A DB check keeps every real scan's device and IP hash mandatory |
 | Rate limiting | Per IP (120/min, since a whole class can share one Wi-Fi IP) and per device (10/min), in Redis |
 | Location check (optional, off by default) | Browser geolocation vs the classroom centre captured at session start; `distance − min(accuracy, 100 m) ≤ radius`; nothing stored; a deterrent, not proof |
 | Domain lock (optional, per course) | The Google ID token's `hd` claim must be one of the course's Workspace domains; consumer Gmail has no `hd` |
@@ -266,4 +280,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
 - **Operations:** #31 custom domain · #1 upgrade to Spring Boot 4.x
-- **Features:** #2 Sign in with Apple · #5 teachers can edit student names · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course · #10 manual / offline entry by the teacher
+- **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course
+- **Done recently:** #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course

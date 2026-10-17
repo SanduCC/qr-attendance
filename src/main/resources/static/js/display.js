@@ -1,5 +1,6 @@
-// Projector page: rotating QR code, live attendance table, "Closes in mm:ss" countdown and a fullscreen toggle.
-// No inline scripts (CSP). Student names only ever reach the page through textContent.
+// Projector page: rotating QR code, live attendance table, "Closes in mm:ss" countdown and a fullscreen toggle,
+// plus the teacher's fixes to the list: remove an entry, edit a name (#5), add an entry by hand (#10).
+// No inline scripts (CSP). Student names only ever reach the page through textContent / option text.
 (function () {
   'use strict';
 
@@ -36,6 +37,25 @@
     closeForm: $('close-form'),
     fullscreenBtn: $('fullscreen-btn'),
     records: $('records'),
+    addBtn: $('add-entry-btn'),
+    addDialog: $('add-dialog'),
+    addForm: $('add-form'),
+    addStudent: $('add-student'),
+    addNameFields: $('add-name-fields'),
+    addFirst: $('add-first'),
+    addLast: $('add-last'),
+    addFirstError: $('add-first-error'),
+    addLastError: $('add-last-error'),
+    addError: $('add-error'),
+    editDialog: $('edit-dialog'),
+    editForm: $('edit-form'),
+    editFirst: $('edit-first'),
+    editLast: $('edit-last'),
+    editFirstError: $('edit-first-error'),
+    editLastError: $('edit-last-error'),
+    editError: $('edit-error'),
+    editScopeStudent: $('edit-scope-student'),
+    editScopeManual: $('edit-scope-manual'),
   };
 
   const RECORDS_INTERVAL_MS = 3000;
@@ -216,36 +236,69 @@
     const name = [r.firstName, r.lastName].filter(Boolean).join(' ');
     const tr = document.createElement('tr');
     tr.appendChild(cell(n, 'num'));
-    tr.appendChild(cell(name, 'name'));
+    const nameCell = cell(name, 'name');
+    if (r.manual) {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-manual';
+      badge.textContent = 'manual';
+      badge.title = 'Added by the teacher, not scanned';
+      nameCell.append(' ', badge);
+    }
+    tr.appendChild(nameCell);
     tr.appendChild(cell(r.email, 'email'));
     tr.appendChild(cell(r.checkedInAt));
     const td = document.createElement('td');
     td.className = 'actions';
+    const wrap = document.createElement('div');
+    wrap.className = 'row-actions';
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'btn btn-sm';
+    edit.textContent = 'Edit';
+    edit.setAttribute('aria-label', 'Edit the name of ' + name);
+    edit.addEventListener('click', () => openEdit(r));
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-danger btn-sm';
     btn.textContent = 'Remove';
     btn.setAttribute('aria-label', 'Remove ' + name);
     btn.addEventListener('click', () => removeRecord(r.id, name, btn));
-    td.appendChild(btn);
+    wrap.append(edit, btn);
+    td.appendChild(wrap);
     tr.appendChild(td);
     return tr;
+  }
+
+  function writeHeaders(extra) {
+    const headers = Object.assign({ 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, extra);
+    if (csrfToken) headers[csrfHeader] = csrfToken;
+    return headers;
+  }
+
+  function postForm(url, params) {
+    return request(url, {
+      method: 'POST',
+      headers: writeHeaders({ 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }),
+      body: new URLSearchParams(params).toString(),
+    });
+  }
+
+  function refreshRecords() {
+    lastRecordsKey = null;
+    clearTimeout(recordsTimer);
+    loadRecords();
   }
 
   async function removeRecord(recordId, name, btn) {
     if (!window.confirm('Remove ' + name + '?')) return;
     btn.disabled = true;
-    const headers = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
-    if (csrfToken) headers[csrfHeader] = csrfToken;
     try {
       const res = await request(base + '/records/' + encodeURIComponent(recordId), {
         method: 'DELETE',
-        headers: headers,
+        headers: writeHeaders(),
       });
       if (res.status !== 204 && !res.ok) throw new Error('HTTP ' + res.status);
-      lastRecordsKey = null;
-      clearTimeout(recordsTimer);
-      loadRecords();
+      refreshRecords();
     } catch (err) {
       if (err instanceof AuthError) {
         signedOut();
@@ -254,6 +307,192 @@
       btn.disabled = false;
       window.alert('Could not remove the entry. Please try again.');
     }
+  }
+
+  // ---- Dialogs: add an entry by hand, edit a name ----------------------------
+
+  function openDialog(dialog) {
+    if (typeof dialog.showModal === 'function') {
+      if (!dialog.open) dialog.showModal();
+    } else {
+      dialog.setAttribute('open', '');
+    }
+  }
+
+  function closeDialog(dialog) {
+    if (!dialog) return;
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+
+  document.querySelectorAll('[data-close-dialog]').forEach((btn) => {
+    btn.addEventListener('click', () => closeDialog(btn.closest('dialog')));
+  });
+
+  function showText(node, text) {
+    node.textContent = text || '';
+    node.hidden = !text;
+  }
+
+  async function errorBody(res) {
+    try {
+      const type = res.headers.get('Content-Type') || '';
+      return type.includes('json') ? await res.json() : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Shows the server's answer to a failed add / edit. fields: { firstName: <p>, lastName: <p> }.
+  async function showFailure(res, banner, fields, notFoundText) {
+    const body = await errorBody(res);
+    const fieldErrors = (body && body.fieldErrors) || {};
+    showText(fields.firstName, fieldErrors.firstName);
+    showText(fields.lastName, fieldErrors.lastName);
+    let message = body && body.message;
+    if (res.status === 404) message = notFoundText;
+    else if (res.status === 400 && Object.keys(fieldErrors).length > 0) message = '';
+    else if (!message) message = 'Something went wrong. Please try again.';
+    showText(banner, message);
+  }
+
+  function failedRequest(err, banner) {
+    if (err instanceof AuthError) {
+      closeDialog(el.addDialog);
+      closeDialog(el.editDialog);
+      signedOut();
+      return;
+    }
+    showText(banner, 'Could not reach the server. Please try again.');
+  }
+
+  function setBusy(form, busy) {
+    form.querySelectorAll('button[type="submit"]').forEach((b) => { b.disabled = busy; });
+  }
+
+  // Add entry ------------------------------------------------------------------
+
+  function syncAddMode() {
+    const picked = el.addStudent.value !== '';
+    el.addNameFields.hidden = picked;
+    el.addFirst.required = !picked;
+    el.addLast.required = !picked;
+  }
+
+  function clearAddErrors() {
+    showText(el.addError, '');
+    showText(el.addFirstError, '');
+    showText(el.addLastError, '');
+  }
+
+  async function loadCourseStudents() {
+    const placeholder = el.addStudent.options[0];
+    el.addStudent.replaceChildren(placeholder);
+    el.addStudent.value = '';
+    el.addStudent.disabled = true;
+    syncAddMode();
+    try {
+      const data = await getJson(base + '/students');
+      const students = Array.isArray(data) ? data : [];
+      const label = (s) => [s.lastName, s.firstName].filter(Boolean).join(' ');
+      const seen = {};
+      students.forEach((s) => { seen[label(s)] = (seen[label(s)] || 0) + 1; });
+      students.forEach((s) => {
+        const option = document.createElement('option');
+        option.value = String(s.id);
+        // The page may be on the projector: emails only where two students share a name.
+        const name = label(s);
+        option.textContent = seen[name] > 1 && s.email ? name + ' (' + s.email + ')' : name;
+        el.addStudent.appendChild(option);
+      });
+    } catch (err) {
+      if (err instanceof AuthError) {
+        failedRequest(err, el.addError);
+        return;
+      }
+      showText(el.addError, 'Could not load the list of students. You can still type a name.');
+    } finally {
+      el.addStudent.disabled = false;
+    }
+  }
+
+  if (el.addBtn && el.addDialog) {
+    el.addBtn.addEventListener('click', () => {
+      el.addForm.reset();
+      clearAddErrors();
+      openDialog(el.addDialog);
+      loadCourseStudents();
+    });
+    el.addStudent.addEventListener('change', syncAddMode);
+    el.addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearAddErrors();
+      const studentId = el.addStudent.value;
+      const params = studentId !== ''
+        ? { studentId: studentId }
+        : { firstName: el.addFirst.value, lastName: el.addLast.value };
+      setBusy(el.addForm, true);
+      try {
+        const res = await postForm(base + '/records', params);
+        if (res.status === 201) {
+          closeDialog(el.addDialog);
+          refreshRecords();
+          return;
+        }
+        await showFailure(res, el.addError, { firstName: el.addFirstError, lastName: el.addLastError },
+          'This student is not available any more. Pick another one or type the name.');
+        if (studentId !== '' && (res.status === 404 || res.status === 409)) loadCourseStudents();
+      } catch (err) {
+        failedRequest(err, el.addError);
+      } finally {
+        setBusy(el.addForm, false);
+      }
+    });
+  }
+
+  // Edit name ------------------------------------------------------------------
+
+  let editing = null;
+
+  function openEdit(r) {
+    editing = r;
+    el.editForm.reset();
+    showText(el.editError, '');
+    showText(el.editFirstError, '');
+    showText(el.editLastError, '');
+    el.editFirst.value = r.firstName || '';
+    el.editLast.value = r.lastName || '';
+    el.editScopeStudent.hidden = !r.registered;
+    el.editScopeManual.hidden = !!r.registered;
+    openDialog(el.editDialog);
+    el.editFirst.focus();
+  }
+
+  if (el.editForm) {
+    el.editForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!editing) return;
+      showText(el.editError, '');
+      setBusy(el.editForm, true);
+      try {
+        const res = await postForm(base + '/records/' + encodeURIComponent(editing.id) + '/name', {
+          firstName: el.editFirst.value,
+          lastName: el.editLast.value,
+        });
+        if (res.status === 204) {
+          closeDialog(el.editDialog);
+          editing = null;
+          refreshRecords();
+          return;
+        }
+        await showFailure(res, el.editError, { firstName: el.editFirstError, lastName: el.editLastError },
+          'This entry no longer exists.');
+      } catch (err) {
+        failedRequest(err, el.editError);
+      } finally {
+        setBusy(el.editForm, false);
+      }
+    });
   }
 
   // ---- Countdown -----------------------------------------------------------

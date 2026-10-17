@@ -66,6 +66,7 @@
                   th:action="@{/sessions/{id}/close(id=${sessionId})}">
                 <button type="submit" class="btn btn-danger">Close session</button>
             </form>
+            <button id="add-entry-btn" type="button" class="btn">Add entry</button>
             <a class="btn" th:href="@{/sessions/{id}/export.xlsx(id=${sessionId})}">Excel</a>
             <a class="btn" th:href="@{/sessions/{id}/export.csv(id=${sessionId})}">CSV</a>
             <a class="btn btn-ghost" th:href="@{/teacher/courses/{id}(id=${course.id})}">Back to course</a>
@@ -92,5 +93,63 @@
         </div>
     </section>
 </main>
+
+<!--/* #10: manual entry for someone who couldn't scan. Sent by display.js with the CSRF header. */-->
+<dialog id="add-dialog" class="dialog" aria-labelledby="add-title">
+    <form id="add-form" method="post" th:action="@{/sessions/{id}/records(id=${sessionId})}" novalidate>
+        <h2 id="add-title" class="dialog-title">Add entry by hand</h2>
+        <p class="muted small">For someone who is here but couldn't scan. The entry is marked <strong>manual</strong>
+            in the table and the exports.</p>
+        <div class="field">
+            <label for="add-student">Student of this course</label>
+            <select id="add-student" name="studentId">
+                <option value="">Not in the list: type a name</option>
+            </select>
+            <p id="add-student-hint" class="hint small">Everyone who has checked in to this course before.</p>
+        </div>
+        <div id="add-name-fields">
+            <div class="field">
+                <label for="add-first">First name</label>
+                <input id="add-first" type="text" name="firstName" maxlength="100" autocomplete="off">
+                <p id="add-first-error" class="field-error" hidden></p>
+            </div>
+            <div class="field">
+                <label for="add-last">Last name</label>
+                <input id="add-last" type="text" name="lastName" maxlength="100" autocomplete="off">
+                <p id="add-last-error" class="field-error" hidden></p>
+            </div>
+        </div>
+        <p id="add-error" class="banner warn" role="alert" hidden></p>
+        <div class="dialog-actions">
+            <button type="button" class="btn" data-close-dialog>Cancel</button>
+            <button type="submit" class="btn btn-primary">Add</button>
+        </div>
+    </form>
+</dialog>
+
+<!--/* #5: teacher corrects a name. */-->
+<dialog id="edit-dialog" class="dialog" aria-labelledby="edit-title">
+    <form id="edit-form" method="post" novalidate>
+        <h2 id="edit-title" class="dialog-title">Edit name</h2>
+        <p id="edit-scope-student" class="muted small">This changes the student's name everywhere: every session
+            and export.</p>
+        <p id="edit-scope-manual" class="muted small" hidden>This changes this manual entry only.</p>
+        <div class="field">
+            <label for="edit-first">First name</label>
+            <input id="edit-first" type="text" name="firstName" maxlength="100" autocomplete="off" required>
+            <p id="edit-first-error" class="field-error" hidden></p>
+        </div>
+        <div class="field">
+            <label for="edit-last">Last name</label>
+            <input id="edit-last" type="text" name="lastName" maxlength="100" autocomplete="off" required>
+            <p id="edit-last-error" class="field-error" hidden></p>
+        </div>
+        <p id="edit-error" class="banner warn" role="alert" hidden></p>
+        <div class="dialog-actions">
+            <button type="button" class="btn" data-close-dialog>Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+    </form>
+</dialog>
 </body>
 </html>

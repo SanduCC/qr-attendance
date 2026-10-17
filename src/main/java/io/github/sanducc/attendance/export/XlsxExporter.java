@@ -12,7 +12,7 @@ import org.dhatim.fastexcel.Worksheet;
 /**
  * A real .xlsx (one sheet, "Attendance"): title block, then a bold, frozen, filterable header and one row per
  * check-in. Names and emails are written as plain string cells, which Excel never evaluates as formulas; the
- * check-in time is a real date/time cell shown as HH:mm:ss.
+ * check-in time is a real date/time cell shown as HH:mm:ss. The last column says "scan" or (bold) "manual".
  */
 public final class XlsxExporter {
 
@@ -29,6 +29,7 @@ public final class XlsxExporter {
     private static final int COL_FIRST = 2;
     private static final int COL_EMAIL = 3;
     private static final int COL_TIME = 4;
+    private static final int COL_SOURCE = 5;
     private static final int MIN_WIDTH = 6;
     private static final int MAX_WIDTH = 50;
 
@@ -61,6 +62,10 @@ public final class XlsxExporter {
             }
             ws.value(row, COL_TIME, r.checkedInAt());
             ws.style(row, COL_TIME).format(TIME_FORMAT).horizontalAlignment("right").set();
+            ws.value(row, COL_SOURCE, r.source());
+            if (r.manual()) {
+                ws.style(row, COL_SOURCE).bold().set();
+            }
         }
 
         ws.freezePane(0, HEADER_ROW + 1);
@@ -77,6 +82,7 @@ public final class XlsxExporter {
         ws.width(COL_EMAIL, width(headers.get(COL_EMAIL), sheet.rows().stream().map(AttendanceSheet.Row::email)
                 .toList()));
         ws.width(COL_TIME, width(headers.get(COL_TIME), List.of(TIME_FORMAT)));
+        ws.width(COL_SOURCE, width(headers.get(COL_SOURCE), List.of(AttendanceSheet.SOURCE_MANUAL)));
 
         workbook.finish();
     }
