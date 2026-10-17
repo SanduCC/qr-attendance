@@ -23,7 +23,12 @@ import java.util.Locale;
  */
 public record AttendanceSheet(String title, String subtitle, String filenameBase, List<Row> rows) {
 
-    public static final List<String> HEADERS = List.of("Nr.", "Last name", "First name", "Email", "Check-in time");
+    public static final List<String> HEADERS = List.of("Nr.", "Last name", "First name", "Email", "Check-in time",
+            "Source");
+
+    /** The "Source" column: scanned the QR code, or added by the teacher. */
+    public static final String SOURCE_SCAN = "scan";
+    public static final String SOURCE_MANUAL = "manual";
 
     private static final DateTimeFormatter DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
@@ -46,8 +51,18 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
         rows = List.copyOf(rows);
     }
 
-    /** One data row; {@code email} may be null, {@code checkedInAt} is local time in the display zone. */
-    public record Row(int nr, String lastName, String firstName, String email, LocalDateTime checkedInAt) {}
+    /**
+     * One data row; {@code email} may be null, {@code checkedInAt} is local time in the display zone, {@code manual}
+     * marks an entry the teacher added by hand.
+     */
+    public record Row(int nr, String lastName, String firstName, String email, LocalDateTime checkedInAt,
+                      boolean manual) {
+
+        /** The "Source" cell. */
+        public String source() {
+            return manual ? SOURCE_MANUAL : SOURCE_SCAN;
+        }
+    }
 
     public static AttendanceSheet of(OwnedSession owned, List<RecordView> records, ZoneId zone) {
         return of(owned.course().getName(), owned.course().getCode(), owned.session().getOpenedAt(),
@@ -61,8 +76,10 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
         String title = code.isEmpty() ? name : name + " (" + code + ")";
 
         ZonedDateTime opened = openedAt.atZone(zone);
+        long manual = records.stream().filter(RecordView::manual).count();
         String subtitle = window(opened, closesAt == null ? null : closesAt.atZone(zone))
                 + " · " + records.size() + " checked in"
+                + (manual == 0 ? "" : " (" + manual + " manual)")
                 + (expectedHeadcount == null ? "" : " / expected " + expectedHeadcount);
 
         String filenameBase = filenameBase(code, name) + "_" + DATE.format(opened);
@@ -76,7 +93,7 @@ public record AttendanceSheet(String title, String subtitle, String filenameBase
         List<Row> rows = new ArrayList<>(sorted.size());
         for (RecordView r : sorted) {
             rows.add(new Row(rows.size() + 1, r.lastName(), r.firstName(), r.email(),
-                    LocalDateTime.ofInstant(r.checkedInAt(), zone)));
+                    LocalDateTime.ofInstant(r.checkedInAt(), zone), r.manual()));
         }
         return new AttendanceSheet(title, subtitle, filenameBase, rows);
     }

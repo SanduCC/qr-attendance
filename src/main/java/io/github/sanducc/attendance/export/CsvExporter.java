@@ -25,12 +25,13 @@ public final class CsvExporter {
         out.write(BOM);
         writeLine(out, AttendanceSheet.HEADERS);
         for (AttendanceSheet.Row r : sheet.rows()) {
-            List<String> cells = new ArrayList<>(5);
+            List<String> cells = new ArrayList<>(AttendanceSheet.HEADERS.size());
             cells.add(Integer.toString(r.nr()));
             cells.add(r.lastName());
             cells.add(r.firstName());
             cells.add(r.email());
             cells.add(TIMESTAMP.format(r.checkedInAt()));
+            cells.add(r.source());
             writeLine(out, cells);
         }
         out.flush();

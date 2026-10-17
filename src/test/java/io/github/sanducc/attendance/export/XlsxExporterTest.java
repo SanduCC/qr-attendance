@@ -42,7 +42,7 @@ class XlsxExporterTest {
             assertThat(text(rows.get(1), 0)).isEqualTo("2026-10-16 09:00–09:15 · 1 checked in / expected 25");
             assertThat(rowAt(rows, 2)).as("blank spacer row").isNull();
             assertThat(rowAt(rows, 3).stream().map(Cell::getText).toList())
-                    .containsExactly("Nr.", "Last name", "First name", "Email", "Check-in time");
+                    .containsExactly("Nr.", "Last name", "First name", "Email", "Check-in time", "Source");
         }
     }
 
@@ -81,8 +81,23 @@ class XlsxExporterTest {
     }
 
     @Test
+    void lastColumnMarksManualEntries() throws Exception {
+        byte[] xlsx = export(null, List.of(
+                record("Ana", "Pop", "ana@student.example.ro", "06:00:01"),
+                new RecordView(2L, null, "Ion", "Dobre", null, Instant.parse("2026-10-16T06:30:00Z"), true)));
+
+        try (ReadableWorkbook workbook = open(xlsx)) {
+            List<Row> rows = workbook.getFirstSheet().read();
+            assertThat(rowAt(rows, 4).getCellText(1)).isEqualTo("Dobre");
+            assertThat(rowAt(rows, 4).getCellText(5)).isEqualTo("manual");
+            assertThat(rowAt(rows, 5).getCellText(1)).isEqualTo("Pop");
+            assertThat(rowAt(rows, 5).getCellText(5)).isEqualTo("scan");
+        }
+    }
+
+    @Test
     void formulaLikeNamesStayPlainStrings() throws Exception {
-        byte[] xlsx = export(null, List.of(new RecordView(1L, "=cmd|' /C calc'!A0", "@SUM(A1:A2)",
+        byte[] xlsx = export(null, List.of(scanned(1L, "=cmd|' /C calc'!A0", "@SUM(A1:A2)",
                 "+x@example.ro", OPENED)));
 
         try (ReadableWorkbook workbook = open(xlsx)) {
@@ -107,7 +122,7 @@ class XlsxExporterTest {
 
         String xml = sheetXml(xlsx);
         assertThat(xml).containsPattern("<pane[^>]*ySplit=\"4\"[^>]*state=\"frozen\"");
-        assertThat(xml).contains("<autoFilter ref=\"A4:E6\"");
+        assertThat(xml).contains("<autoFilter ref=\"A4:F6\"");
         assertThat(xml).contains("<col ");
         assertThat(xml).as("A4 paper for printing").contains("paperSize=\"9\"");
     }
@@ -166,6 +181,11 @@ class XlsxExporterTest {
     }
 
     private static RecordView record(String firstName, String lastName, String email, String utcTime) {
-        return new RecordView(null, firstName, lastName, email, Instant.parse("2026-10-16T" + utcTime + "Z"));
+        return scanned(null, firstName, lastName, email, Instant.parse("2026-10-16T" + utcTime + "Z"));
+    }
+
+    /** A scanned check-in (not manual, no student id needed here). */
+    static RecordView scanned(Long id, String firstName, String lastName, String email, Instant checkedInAt) {
+        return new RecordView(id, null, firstName, lastName, email, checkedInAt, false);
     }
 }

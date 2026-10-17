@@ -2,17 +2,21 @@ package io.github.sanducc.attendance.export;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.sanducc.attendance.checkin.Student;
 import io.github.sanducc.attendance.course.Teacher;
 import io.github.sanducc.attendance.support.IntegrationTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.dhatim.fastexcel.reader.CellType;
 import org.dhatim.fastexcel.reader.ReadableWorkbook;
 import org.dhatim.fastexcel.reader.Row;
@@ -83,9 +87,56 @@ class ExportTest extends IntegrationTestSupport {
         assertThat(result.getResponse().getCharacterEncoding()).isEqualToIgnoringCase("UTF-8");
 
         String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertThat(csv).isEqualTo("﻿Nr.;Last name;First name;Email;Check-in time\r\n"
-                + "1;Popescu;Ana;sub-2@student.example.ro;2026-10-16 09:00:05\r\n"
-                + "2;Țărănescu;Ștefan;sub-1@student.example.ro;2026-10-16 09:00:05\r\n");
+        assertThat(csv).isEqualTo("﻿Nr.;Last name;First name;Email;Check-in time;Source\r\n"
+                + "1;Popescu;Ana;sub-2@student.example.ro;2026-10-16 09:00:05;scan\r\n"
+                + "2;Țărănescu;Ștefan;sub-1@student.example.ro;2026-10-16 09:00:05;scan\r\n");
+    }
+
+    /** #10 + #5: manual entries (with and without an account) are marked, and a teacher's name fix shows up. */
+    @Test
+    void exportsMarkManualEntriesAndShowCorrectedNames() throws Exception {
+        Fixture f = openFixture(2);
+        Student ana = insertStudent("sub-1", "Ana", "Popesu");
+        insertRecord(f.sessionId(), ana);
+        UUID otherSession = sessionService.openSession(f.teacherId(), f.courseId(), 15, null).getId();
+        Student bogdan = insertStudent("sub-2", "Bogdan", "Ionescu");
+        insertRecord(otherSession, bogdan);
+        clock.advance(Duration.ofMinutes(20));
+
+        // Bogdan's phone is dead, Carmen has no account; the session has closed in the meantime.
+        mvc.perform(post("/sessions/{id}/records", f.sessionId()).with(csrf()).with(owner(f))
+                        .param("studentId", String.valueOf(bogdan.getId())))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/sessions/{id}/records", f.sessionId()).with(csrf()).with(owner(f))
+                        .param("firstName", "Carmen").param("lastName", "Dobre"))
+                .andExpect(status().isCreated());
+        long anasRecord = recordRepository.findBySessionIdAndStudentId(f.sessionId(), ana.getId()).orElseThrow()
+                .getId();
+        mvc.perform(post("/sessions/{id}/records/{rid}/name", f.sessionId(), anasRecord).with(csrf()).with(owner(f))
+                        .param("firstName", "Ana").param("lastName", "Popescu"))
+                .andExpect(status().isNoContent());
+
+        String csv = mvc.perform(get("/sessions/{id}/export.csv", f.sessionId()).with(owner(f)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(csv).isEqualTo("﻿Nr.;Last name;First name;Email;Check-in time;Source\r\n"
+                + "1;Dobre;Carmen;;2026-10-16 09:20:05;manual\r\n"
+                + "2;Ionescu;Bogdan;sub-2@student.example.ro;2026-10-16 09:20:05;manual\r\n"
+                + "3;Popescu;Ana;sub-1@student.example.ro;2026-10-16 09:00:05;scan\r\n");
+
+        MvcResult xlsx = mvc.perform(get("/sessions/{id}/export.xlsx", f.sessionId()).with(owner(f)))
+                .andExpect(status().isOk())
+                .andReturn();
+        try (ReadableWorkbook workbook = XlsxExporterTest.open(xlsx.getResponse().getContentAsByteArray())) {
+            List<Row> rows = workbook.getFirstSheet().read();
+            assertThat(XlsxExporterTest.rowAt(rows, 1).getCellText(0))
+                    .isEqualTo("2026-10-16 09:00–09:15 · 3 checked in (2 manual) / expected 2");
+            assertThat(XlsxExporterTest.rowAt(rows, 3).getCellText(5)).isEqualTo("Source");
+            assertThat(XlsxExporterTest.rowAt(rows, 4).getCellText(5)).isEqualTo("manual");
+            assertThat(XlsxExporterTest.rowAt(rows, 5).getCellText(5)).isEqualTo("manual");
+            assertThat(XlsxExporterTest.rowAt(rows, 6).getCellText(1)).isEqualTo("Popescu");
+            assertThat(XlsxExporterTest.rowAt(rows, 6).getCellText(5)).isEqualTo("scan");
+        }
     }
 
     @Test
