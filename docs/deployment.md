@@ -19,7 +19,8 @@ Whatever you pick, the app needs these settings in production (full list in the 
 - `TRUSTED_PROXY_HOPS` (default `1`) = how many proxies in front of the app append to `X-Forwarded-For`. `1` fits
   Cloud Run's `run.app` URL, Caddy and nginx; see [Client IP behind a proxy](#client-ip-behind-a-proxy).
 - `COOKIE_SECURE=true` (the default).
-- Secrets (`GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HASH_PEPPER`, `DATABASE_PASSWORD`) from a secret manager or a root-only `.env`, never committed.
+- Secrets (`GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HASH_PEPPER`, `DATABASE_PASSWORD`, and `MAIL_PASSWORD` if
+  [email sign-in](#email-sign-in-smtp) is on) from a secret manager or a root-only `.env`, never committed.
 - In the Google OAuth client, add `{PUBLIC_BASE_URL}/login/oauth2/code/google` as an authorized redirect URI.
 
 ---
@@ -555,6 +556,104 @@ projects on the same billing account don't already use the 3. Cloud Run sees one
 start, about 600 vCPU-seconds a month against 180,000 free. Neon wakes once a night, for about 5 minutes of compute.
 Upstash sees one or two commands for the rate limit.
 
+### Email sign-in (SMTP)
+
+Students without a Google account can sign in with a one-time code sent to their address (README,
+[Email sign-in](../README.md#email-sign-in-optional)). The feature is **off** until an SMTP provider is set up and
+`EMAIL_SIGN_IN_ENABLED=true`. With the flag on, the app refuses to start unless `MAIL_HOST` and `MAIL_FROM` are set.
+TLS is forced in code: port 465 = SMTPS, any other port = STARTTLS, required, with the server certificate's host name
+checked. A send waits at most 10 s, after which the student sees "We couldn't send the code. Please try again." The
+mail server is not part of `/actuator/health`.
+
+| Variable | Example | Notes |
+|---|---|---|
+| `EMAIL_SIGN_IN_ENABLED` | `true` | default `false` |
+| `MAIL_HOST` | `smtp-relay.brevo.com` | |
+| `MAIL_PORT` | `587` | default `587` (STARTTLS); `465` for SMTPS |
+| `MAIL_USERNAME` | the provider's SMTP login | not a secret |
+| `MAIL_PASSWORD` | the provider's SMTP key | **secret**: Secret Manager, never an env var in plain text |
+| `MAIL_FROM` | `QR Attendance <attendance.qr@example.ro>` | must be a sender the provider has verified |
+
+Volume: at most one mail per code. The app caps codes at 250 a day app-wide, 3 per address per 15 min, 5 per phone
+per 15 min and 60 per IP per hour (`attendance.email-sign-in.limits`), so a free tier of ~300 a day is enough.
+
+#### Which provider (snapshot October 2026, check the current terms)
+
+| Provider | Free tier | Where / GDPR | Without your own domain |
+|---|---|---|---|
+| **Brevo** (recommended) | 300 mails/day, SMTP relay included | French company; data hosted in the EU (OVH France/Germany, Google Cloud Belgium); DPA in the terms | a single verified sender address works, but see the caveat below |
+| Mailjet (Sinch) | 6,000/month, max 200/day | EU-based, DPA available | single verified sender, same caveat |
+| Resend | 3,000/month, max 100/day, 1 domain | US company; EU sending region only on paid plans | needs a verified domain: not usable before #31 |
+| Amazon SES | 3,000/month for 12 months (or the AWS free credits); sandbox until AWS grants production access | EU regions available, AWS DPA | verified identity, sandbox only mails verified recipients: too much setup for this |
+| Gmail SMTP + app password | ~500/day | Google consumer terms, no DPA for this use | sends as a personal Gmail account; Google can block it at any time. **Not recommended** |
+
+**Recommendation: Brevo.** It is EU-based with EU hosting, its free tier (300/day) covers several classes a day, and
+it has plain SMTP relay with a separate SMTP key, so `MAIL_PASSWORD` is never an account password.
+
+**Caveat until there's a custom domain (#31, parked).** Mail providers authenticate the *domain* of the sender
+(DKIM, DMARC). You can't authenticate a domain you don't own: `gmail.com`, `yahoo.com` or a university address you
+don't control. A single verified sender address still works, but:
+- Brevo may rewrite the visible sender of mail from an unauthenticated domain to one of its own domains, so students
+  see an unfamiliar address.
+- Some mailboxes (Microsoft's Outlook/Hotmail in particular) are strict with unauthenticated senders, so codes may
+  land in spam or be refused. The code page tells students to check their spam folder.
+- Best before #31: use an address on a domain the school controls and have its IT add Brevo's DNS records. Next
+  best: a dedicated mailbox created for the app, never a personal one. Once #31 gives the app its own domain,
+  authenticate that domain in Brevo and switch `MAIL_FROM` to it.
+
+#### One-time setup with Brevo (owner)
+
+1. Create a free account at brevo.com with the app owner's work address. Brevo may ask for a company profile and may
+   review a new account before it can send.
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender**: name `QR Attendance`, the address for `MAIL_FROM`.
+   Click the confirmation link Brevo emails to that address. If you control the address's domain, also authenticate
+   the domain (**Domains → Add a domain**: Brevo code TXT, DKIM and DMARC records) for good deliverability.
+3. **SMTP & API → SMTP**: note the SMTP server (`smtp-relay.brevo.com`), port `587` and the SMTP **login** (an
+   address Brevo shows there). Generate a new **SMTP key** named `qr-attendance`. It is shown once; it's
+   `MAIL_PASSWORD`.
+4. Accept the DPA (it's part of Brevo's terms; a signed copy can be downloaded from the account) and add Brevo to
+   the school's list of processors.
+5. Put the key in Secret Manager and turn the feature on (Windows PowerShell; nothing here prints the key):
+
+```powershell
+$gcloud  = "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+$Project = 'qr-attendance-sanducc'; $Region = 'europe-west1'
+$RuntimeSa = "qr-attendance-run@$Project.iam.gserviceaccount.com"
+
+# 1. The SMTP key as a secret, stored in the EU region only. Typed at a hidden prompt, written to a temp file
+#    without a trailing newline (a PowerShell pipe would add one), then the file is deleted.
+$key = Read-Host 'Brevo SMTP key' -AsSecureString
+$tmp = New-TemporaryFile
+[IO.File]::WriteAllText($tmp, [Net.NetworkCredential]::new('', $key).Password)
+& $gcloud secrets create mail-password --project $Project `
+    --replication-policy=user-managed --locations=$Region --data-file=$tmp
+Remove-Item $tmp
+# 2. Only the runtime service account may read it
+& $gcloud secrets add-iam-policy-binding mail-password --project $Project `
+    --member="serviceAccount:$RuntimeSa" --role=roles/secretmanager.secretAccessor
+# 3. Mail settings plus the secret; still off (new revision, same image)
+& $gcloud run services update qr-attendance --project $Project --region $Region `
+    --update-secrets 'MAIL_PASSWORD=mail-password:latest' `
+    --update-env-vars 'MAIL_HOST=smtp-relay.brevo.com,MAIL_PORT=587,MAIL_USERNAME=XXXXXX@smtp-brevo.com,MAIL_FROM=QR Attendance <attendance.qr@example.ro>'
+# 4. Turn it on (outside class time). The revision fails to start, and traffic stays on the old one, if MAIL_HOST
+#    or MAIL_FROM is missing.
+& $gcloud run services update qr-attendance --project $Project --region $Region `
+    --update-env-vars 'EMAIL_SIGN_IN_ENABLED=true'
+```
+
+Then test it once yourself: open `/login/email` on a phone, request a code to a personal inbox, check that it arrives
+(and not in spam), and sign in. The Cloud Run log shows `Sign-in code sent to a***@…` with a masked address; codes and
+full addresses are never logged. To turn it off again, set `EMAIL_SIGN_IN_ENABLED=false` in the same way; email
+students keep their attendance.
+
+**Rotating the key:** generate a new SMTP key in Brevo, then add it with `& $gcloud secrets versions add mail-password
+--project $Project --data-file=$tmp` (same temp-file steps). Deploy a new revision, or run any `services update`, so
+`latest` is read again, then delete the old key in Brevo.
+
+**Rolling back** once email students exist: the release before this feature can't read `provider = 'EMAIL'` rows,
+so teacher pages that list those students would fail. Roll back only to a release that has the feature (it can stay
+switched off).
+
 ---
 
 ## (b) Oracle Cloud Always Free ARM VM + docker compose + Caddy
@@ -664,5 +763,7 @@ Convenient git-push deploys, but at the time of writing their free offers either
 - [ ] **Retention purge job** runs daily: the in-app timer on always-on hosts, or Cloud Scheduler on scale-to-zero hosts ([Scheduled jobs](#scheduled-jobs-cloud-scheduler)). Check for the nightly `Retention purge: cutoff …` log line.
 - [ ] **Privacy notice** shown on the student page before sign-in, naming the controller (school/teacher), purpose, data stored and retention.
 - [ ] Only minimal data stored: name, email, provider subject, check-in time; IP and device ID **hashed with the pepper**, never raw.
+- [ ] If [email sign-in](#email-sign-in-smtp) is on: the mail provider is an EU-hosted processor with an accepted DPA
+  and is named in the privacy notice. Sign-in codes exist only as peppered hashes in Redis, for at most 10 minutes.
 - [ ] Access logs on the proxy/host don't keep raw IPs longer than needed.
 - [ ] Teacher list at `/admin/teachers` reviewed each term (deactivate people who left); `ADMIN_EMAILS` kept to the people who really manage teachers.

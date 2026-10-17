@@ -20,7 +20,7 @@ Course(id, teacher_id, name, code NULL, allowed_domains NULL)   -- allowed_domai
 AttendanceSession(id UUID, course_id, opened_at, closes_at, status[OPEN|CLOSED],
                   expected_headcount NULL, geofence_lat NULL, geofence_lng NULL, geofence_radius_m NULL)
     -- geofence_*: the classroom circle (rule 6), all NULL = no location check
-Student(id, provider[GOOGLE|APPLE], provider_subject, email, first_name, last_name, created_at)
+Student(id, provider[GOOGLE|APPLE|EMAIL], provider_subject, email, first_name, last_name, created_at)
     UNIQUE(provider, provider_subject)
 AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash NULL, ip_hash NULL, user_agent,
                  manual, added_by_teacher_id NULL, manual_first_name NULL, manual_last_name NULL)
@@ -30,7 +30,9 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
     CHECK  manual => no device_id_hash, no ip_hash; student_id XOR manual_first/last_name
     UNIQUE(session_id, lower(manual_last_name), lower(manual_first_name)) WHERE student_id IS NULL
 ```
-- Identify students by `provider_subject` (the OAuth `sub` claim), **never** by email or name.
+- Identify students by `provider` + `provider_subject` (the OAuth `sub` claim), **never** by email or name.
+  The one exception is email sign-in (`EMAIL`, #52): there the subject *is* the verified address, trimmed and
+  lowercased (dots and `+tags` kept). A Google and an email student with the same address are two accounts.
 - Names come pre-filled from the OAuth profile. The student can correct them only on first registration; after that they're locked (teachers can edit).
 - A teacher's name correction changes the `Student` row, so it applies everywhere (every session, every course's export).
 - **Manual entries** (teacher adds someone who couldn't scan): `manual = true`, `added_by_teacher_id` set, no device or IP
@@ -54,7 +56,11 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
 ### Student
 1. Scan QR → `GET /a/{sessionId}?t={token}`.
 2. Server validates the token **before** redirecting to login and stores `sessionId + token` in the HTTP session.
-3. OAuth login (Google / Apple).
+3. OAuth login (Google / Apple), or, if `attendance.email-sign-in.enabled`, email sign-in (students only): enter
+   the address → a 6-digit code is mailed → type it **in the same browser** (`/login/email`, `/login/email/code`).
+   Code: SecureRandom, 10 min, single use, 5 tries, constant-time compare, only a peppered hash in Redis bound to
+   HTTP session id + address. Rate-limited per address, device, IP, day and session. Never grants teacher/admin.
+   With a domain lock, the address's domain must be one of the course's domains.
 4. Confirm-name screen (first-time only) → `POST /a/{sessionId}/check-in`.
 5. Success screen with name + timestamp. A second attempt shows "Already checked in at 09:02".
 
@@ -93,6 +99,8 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
 | POST | `/sessions/{id}/close` | teacher | close session |
 | GET | `/sessions/{id}/export.csv` | teacher | export |
 | GET | `/a/{sessionId}?t=` | public | scan landing, validates token |
+| GET/POST | `/login/email` | public | email sign-in: ask for a code (only when enabled) |
+| GET/POST | `/login/email/code` · POST `/login/email/resend` | public | type the code / send a new one |
 | POST | `/a/{sessionId}/check-in` | student | record attendance |
 
 ## Security & privacy (GDPR — users are in Romania/EU)
@@ -146,6 +154,7 @@ docker compose up -d postgres redis   # deps
 ./mvnw verify                         # full build
 ```
 Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HASH_PEPPER`, (phase 2) `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_SERVICES_ID`, `APPLE_PRIVATE_KEY`.
+Email sign-in (optional, off by default): `EMAIL_SIGN_IN_ENABLED=true` plus `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` (secret), `MAIL_FROM`; STARTTLS or SMTPS is forced.
 
 ## MVP scope
 **In:** Google login, courses, sessions, rotating QR, one-per-account + one-per-device, live teacher table, CSV export.
