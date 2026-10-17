@@ -71,10 +71,17 @@ public class SessionService {
     @Transactional
     public AttendanceSession startSession(long teacherId, long courseId, Integer durationMinutes,
                                           Integer expectedHeadcount, boolean headcountExplicit) {
+        return startSession(teacherId, courseId, durationMinutes, expectedHeadcount, headcountExplicit, null);
+    }
+
+    /** As above, with an optional location check (rule 6); null = none, the default. */
+    @Transactional
+    public AttendanceSession startSession(long teacherId, long courseId, Integer durationMinutes,
+                                          Integer expectedHeadcount, boolean headcountExplicit, Geofence geofence) {
         Integer expected = expectedHeadcount == null && !headcountExplicit
                 ? lastExpectedHeadcount(teacherId, courseId)
                 : expectedHeadcount;
-        return openSession(teacherId, courseId, durationMinutes, expected);
+        return openSession(teacherId, courseId, durationMinutes, expected, geofence);
     }
 
     /** The expected headcount of the most recent session of the teacher's own course; null if none or none set. */
@@ -90,7 +97,25 @@ public class SessionService {
     @Transactional
     public AttendanceSession openSession(long teacherId, long courseId, Integer durationMinutes,
                                          Integer expectedHeadcount) {
+        return openSession(teacherId, courseId, durationMinutes, expectedHeadcount, null);
+    }
+
+    /**
+     * Opens a session with exactly these values. {@code geofence} (rule 6) is the optional classroom circle; its
+     * radius must be within {@code attendance.geofence} bounds. Ownership is checked first, so only the course's
+     * teacher can turn the location check on.
+     */
+    @Transactional
+    public AttendanceSession openSession(long teacherId, long courseId, Integer durationMinutes,
+                                         Integer expectedHeadcount, Geofence geofence) {
         Course course = courseService.getOwnedCourse(teacherId, courseId);
+        if (geofence != null) {
+            AttendanceProperties.GeofenceSettings bounds = properties.geofence();
+            if (geofence.radiusMeters() < bounds.minRadiusM() || geofence.radiusMeters() > bounds.maxRadiusM()) {
+                throw new IllegalArgumentException("Geofence radius must be between " + bounds.minRadiusM()
+                        + " and " + bounds.maxRadiusM() + " m");
+            }
+        }
         Duration duration = durationMinutes == null
                 ? properties.session().defaultDuration()
                 : Duration.ofMinutes(durationMinutes);
@@ -99,7 +124,9 @@ public class SessionService {
                     + properties.session().maxDuration().toMinutes() + " minutes");
         }
         Instant now = clock.instant();
-        return sessions.save(new AttendanceSession(course.getId(), now, now.plus(duration), expectedHeadcount));
+        AttendanceSession session = new AttendanceSession(course.getId(), now, now.plus(duration), expectedHeadcount);
+        session.setGeofence(geofence);
+        return sessions.save(session);
     }
 
     /** Throws NotFound both when the session doesn't exist and when another teacher owns it. */

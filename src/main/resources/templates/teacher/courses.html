@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/layout :: head('My courses · QR Attendance')}"></head>
+<head>
+    <th:block th:replace="~{fragments/layout :: headTags('My courses · QR Attendance')}"></th:block>
+    <script th:src="@{/js/start-options.js}" defer></script>
+</head>
 <body>
 <header th:replace="~{fragments/layout :: header('courses')}"></header>
 <main class="container wide">
@@ -19,7 +22,7 @@
             <div class="banner warn" role="alert" th:if="${#fields.hasGlobalErrors()}">
                 <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">Error</p>
             </div>
-            <div class="form-grid inline-submit two">
+            <div class="form-grid course-fields">
                 <div class="field">
                     <label for="name">Course name</label>
                     <input type="text" th:field="*{name}" th:errorclass="invalid" maxlength="200" autocomplete="off"
@@ -32,10 +35,19 @@
                            placeholder="e.g. CS101">
                     <p class="field-error" th:if="${#fields.hasErrors('code')}" th:errors="*{code}">Error</p>
                 </div>
-                <div class="field submit">
-                    <button type="submit" class="btn btn-primary">Create course</button>
-                </div>
             </div>
+            <!--/* Rule 7: optional Google Workspace domain lock (also editable later under the course's settings). */-->
+            <div class="field">
+                <label for="allowedDomains">Only Google Workspace accounts of <span class="hint">(optional)</span></label>
+                <input type="text" th:field="*{allowedDomains}" th:errorclass="invalid" maxlength="500"
+                       autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. university.ro"
+                       aria-describedby="allowedDomains-hint">
+                <p class="field-error" th:if="${#fields.hasErrors('allowedDomains')}" th:errors="*{allowedDomains}">Error</p>
+                <p id="allowedDomains-hint" class="field-hint">Leave empty to accept any Google account. Separate
+                    several domains with commas. Students must sign in with a school account of one of these domains;
+                    personal Gmail accounts are refused.</p>
+            </div>
+            <button type="submit" class="btn btn-primary">Create course</button>
         </form>
     </details>
 
@@ -52,6 +64,9 @@
                 <h2 class="course-name"><a th:href="@{/teacher/courses/{id}(id=${c.id})}" th:text="${c.name}">Algorithms</a></h2>
                 <span class="badge" th:if="${c.code != null}" th:text="${c.code}">CS101</span>
             </div>
+            <p class="course-meta" th:unless="${#strings.isEmpty(c.allowedDomains)}">
+                <span class="badge" th:text="${c.allowedDomains + ' only'}">@university.ro only</span>
+            </p>
 
             <p class="course-meta" th:if="${c.lastSession == null}">No sessions yet</p>
             <p class="course-meta" th:if="${c.lastSession != null}">
@@ -73,7 +88,8 @@
                         ? ' · ' + c.nextExpectedHeadcount + ' expected' : '')}">15 minutes · 25 expected</p>
                 <details class="disclosure">
                     <summary>Options</summary>
-                    <form class="disclosure-body" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${c.id})}">
+                    <form class="disclosure-body" method="post" th:action="@{/teacher/courses/{id}/sessions(id=${c.id})}"
+                          data-geofence-form>
                         <input type="hidden" name="headcountExplicit" value="true">
                         <div class="form-grid">
                             <div class="field">
@@ -87,6 +103,27 @@
                                        min="1" max="5000" th:value="${c.nextExpectedHeadcount}">
                             </div>
                         </div>
+                        <fieldset class="geofence">
+                            <legend class="visually-hidden">Location check</legend>
+                            <label class="check">
+                                <input type="checkbox" name="requireLocation" value="true" data-geofence-toggle>
+                                <span>Require location <span class="hint">: students must be near this device</span></span>
+                            </label>
+                            <div data-geofence-fields>
+                                <div class="field">
+                                    <label th:for="${'radius-' + c.id}">Radius <span class="hint"
+                                            th:text="${'(metres, ' + geofenceMinRadiusM + '–' + geofenceMaxRadiusM + ')'}">(metres, 25–1000)</span></label>
+                                    <input type="number" inputmode="numeric" name="geofenceRadiusM" th:id="${'radius-' + c.id}"
+                                           th:min="${geofenceMinRadiusM}" th:max="${geofenceMaxRadiusM}"
+                                           th:value="${geofenceDefaultRadiusM}">
+                                </div>
+                                <p class="small muted">Start from a device in the classroom: its location becomes the
+                                    centre. Students can fake their location, so this deters, it doesn't prove.</p>
+                            </div>
+                            <input type="hidden" name="latitude" value="" data-geofence-lat>
+                            <input type="hidden" name="longitude" value="" data-geofence-lng>
+                            <p class="small" role="status" aria-live="polite" data-geofence-status></p>
+                        </fieldset>
                         <button type="submit" class="btn btn-block">Start with these options</button>
                     </form>
                 </details>

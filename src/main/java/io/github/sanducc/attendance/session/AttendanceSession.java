@@ -58,6 +58,21 @@ public class AttendanceSession {
         return status == SessionStatus.OPEN && now.isBefore(closesAt);
     }
 
+    /** Rule 6: the classroom circle students must be in, or null for no location check (the default). */
+    void setGeofence(Geofence geofence) {
+        this.geofenceLat = geofence == null ? null : geofence.latitude();
+        this.geofenceLng = geofence == null ? null : geofence.longitude();
+        this.geofenceRadiusM = geofence == null ? null : geofence.radiusMeters();
+    }
+
+    /** The location check of this session, or null when it has none (any column missing means off). */
+    public Geofence getGeofence() {
+        if (geofenceLat == null || geofenceLng == null || geofenceRadiusM == null) {
+            return null;
+        }
+        return new Geofence(geofenceLat, geofenceLng, geofenceRadiusM);
+    }
+
     public void close(Instant now) {
         status = SessionStatus.CLOSED;
         if (now.isBefore(closesAt)) {

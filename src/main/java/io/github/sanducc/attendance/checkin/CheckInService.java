@@ -7,11 +7,14 @@ import io.github.sanducc.attendance.common.RateLimiter;
 import io.github.sanducc.attendance.config.AttendanceProperties;
 import io.github.sanducc.attendance.course.Course;
 import io.github.sanducc.attendance.course.CourseRepository;
+import io.github.sanducc.attendance.course.WorkspaceDomains;
 import io.github.sanducc.attendance.session.AttendanceSession;
+import io.github.sanducc.attendance.session.Geofence;
 import io.github.sanducc.attendance.session.QrTokenService;
 import io.github.sanducc.attendance.session.SessionService;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -67,7 +70,16 @@ public class CheckInService {
         record SessionClosed() implements CheckInOutcome {}
         record NameRequired() implements CheckInOutcome {}
         record RateLimited() implements CheckInOutcome {}
+        /** Rule 7: the course only accepts these Workspace domains and this account's {@code hd} isn't one. */
+        record WrongDomain(List<String> allowedDomains) implements CheckInOutcome {}
+        /** Rule 6: the session requires a location and none (or an unusable one) was sent. */
+        record LocationRequired() implements CheckInOutcome {}
+        /** Rule 6: the reported position is outside the classroom circle, even with the accuracy credit. */
+        record OutsideGeofence(long distanceMeters) implements CheckInOutcome {}
     }
+
+    /** What the confirm page needs to know about a session's optional rules. */
+    public record SessionRules(String courseName, List<String> allowedDomains, boolean locationRequired) {}
 
     /** Rule 1 + 2: the rotating token is checked here, before sign-in, and bound to this browser. */
     public ScanOutcome scan(UUID sessionId, String token, ClientContext client) {
@@ -90,12 +102,19 @@ public class CheckInService {
                 courseName(session));
     }
 
-    /**
-     * Records attendance. {@code names} is only used when this account has never registered;
-     * after that, names are locked.
-     */
+    /** Check-in without a reported location (enough for every session without a geofence). */
     public CheckInOutcome checkIn(UUID sessionId, PendingCheckIn pending, AuthenticatedUser user, NameForm names,
                                   ClientContext client) {
+        return checkIn(sessionId, pending, user, names, Geofence.Location.NONE, client);
+    }
+
+    /**
+     * Records attendance. {@code names} is only used when this account has never registered;
+     * after that, names are locked. {@code location} is what the browser reported; only compared with the
+     * session's geofence (if any), never stored.
+     */
+    public CheckInOutcome checkIn(UUID sessionId, PendingCheckIn pending, AuthenticatedUser user, NameForm names,
+                                  Geofence.Location location, ClientContext client) {
         if (!withinRateLimit(client)) {
             return new CheckInOutcome.RateLimited();
         }
@@ -117,6 +136,22 @@ public class CheckInService {
         Optional<AttendanceSession> session = sessions.findForScan(sessionId);
         if (session.isEmpty() || !pending.scannedAt().isBefore(session.get().getClosesAt())) {
             return new CheckInOutcome.SessionClosed();
+        }
+        // Rule 7, before anything is written (not even the student row): the ID token's hd claim must match.
+        List<String> allowedDomains = allowedDomains(session.get());
+        if (!WorkspaceDomains.allows(allowedDomains, user.hostedDomain())) {
+            return new CheckInOutcome.WrongDomain(allowedDomains);
+        }
+        // Rule 6 (only when the teacher turned it on): the reported position is compared, then forgotten.
+        Geofence geofence = session.get().getGeofence();
+        if (geofence != null) {
+            Geofence.Result result = geofence.check(location, properties.geofence().maxAccuracyCreditM());
+            if (result instanceof Geofence.Result.Missing) {
+                return new CheckInOutcome.LocationRequired();
+            }
+            if (result instanceof Geofence.Result.Outside outside) {
+                return new CheckInOutcome.OutsideGeofence(Math.round(outside.distanceMeters()));
+            }
         }
         // Rule 4, checked up front for a friendly message; the DB constraint is the real guard.
         if (records.existsBySessionIdAndDeviceIdHash(sessionId, deviceHash)) {
@@ -168,6 +203,26 @@ public class CheckInService {
         return sessions.findForScan(sessionId).map(this::courseName);
     }
 
+    /** The optional rules of a session, for the student pages; no restrictions for an unknown session. */
+    public SessionRules rules(UUID sessionId) {
+        return sessions.findForScan(sessionId)
+                .map(s -> {
+                    Optional<Course> course = courses.findById(s.getCourseId());
+                    return new SessionRules(course.map(Course::getName).orElse(""),
+                            course.map(Course::getAllowedDomains).orElse(List.of()), s.getGeofence() != null);
+                })
+                .orElseGet(() -> new SessionRules("", List.of(), false));
+    }
+
+    /**
+     * Rule 7 for the confirm page, so a student with the wrong account learns it before typing anything: the
+     * allowed domains when this account isn't accepted, empty when it is. {@link #checkIn} checks again.
+     */
+    public Optional<List<String>> domainLockViolation(UUID sessionId, AuthenticatedUser user) {
+        List<String> allowed = rules(sessionId).allowedDomains();
+        return WorkspaceDomains.allows(allowed, user.hostedDomain()) ? Optional.empty() : Optional.of(allowed);
+    }
+
     private boolean isPendingUsable(UUID sessionId, PendingCheckIn pending, String deviceHash) {
         return pending != null
                 && pending.sessionId().equals(sessionId)
@@ -208,6 +263,10 @@ public class CheckInService {
 
     private String courseName(AttendanceSession session) {
         return courses.findById(session.getCourseId()).map(Course::getName).orElse("");
+    }
+
+    private List<String> allowedDomains(AttendanceSession session) {
+        return courses.findById(session.getCourseId()).map(Course::getAllowedDomains).orElse(List.of());
     }
 
     private static String truncate(String userAgent) {

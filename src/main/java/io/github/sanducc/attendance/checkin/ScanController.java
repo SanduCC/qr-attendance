@@ -2,17 +2,22 @@ package io.github.sanducc.attendance.checkin;
 
 import io.github.sanducc.attendance.checkin.CheckInService.CheckInOutcome;
 import io.github.sanducc.attendance.checkin.CheckInService.ScanOutcome;
+import io.github.sanducc.attendance.checkin.CheckInService.SessionRules;
 import io.github.sanducc.attendance.common.AuthenticatedUser;
 import io.github.sanducc.attendance.common.ClientContext;
 import io.github.sanducc.attendance.common.DisplayTime;
 import io.github.sanducc.attendance.common.InAppBrowser;
 import io.github.sanducc.attendance.config.AttendanceProperties;
+import io.github.sanducc.attendance.course.WorkspaceDomains;
+import io.github.sanducc.attendance.session.Geofence;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
@@ -60,8 +65,11 @@ public class ScanController {
                 }
                 String currentUrl = properties.publicBaseUrl() + "/a/" + sessionId + "?t="
                         + URLEncoder.encode(token, StandardCharsets.UTF_8);
+                SessionRules rules = checkIns.rules(sessionId);
                 model.addAttribute("sessionId", sessionId);
                 model.addAttribute("courseName", accepted.courseName());
+                model.addAttribute("allowedDomains", WorkspaceDomains.describe(rules.allowedDomains()));
+                model.addAttribute("locationRequired", rules.locationRequired());
                 model.addAttribute("inAppBrowser", InAppBrowser.detect(request.getHeader(HttpHeaders.USER_AGENT)));
                 model.addAttribute("currentUrl", currentUrl);
                 model.addAttribute("openInChromeUrl", openInChromeUrl(currentUrl));
@@ -89,14 +97,26 @@ public class ScanController {
         if (!checkIns.isPendingUsable(sessionId, pending, ClientContext.from(request))) {
             return expiredScan(model, response);
         }
+        Optional<List<String>> wrongDomain = checkIns.domainLockViolation(sessionId, user);
+        if (wrongDomain.isPresent()) {
+            return wrongDomain(wrongDomain.get(), user, model, response);
+        }
         NameForm form = student.map(s -> new NameForm(s.getFirstName(), s.getLastName()))
                 .orElseGet(() -> new NameForm(user.givenName(), user.familyName()));
         return confirmPage(sessionId, user, student.isPresent(), form, model);
     }
 
+    /**
+     * {@code latitude}, {@code longitude} and {@code accuracy} are filled in by checkin-location.js on sessions with
+     * a location check (rule 6) and ignored otherwise. Taken as strings: anything unparseable counts as missing.
+     */
     @PostMapping("/check-in")
     public String checkIn(@PathVariable UUID sessionId, @Valid @ModelAttribute("nameForm") NameForm nameForm,
-                          BindingResult binding, OAuth2AuthenticationToken authentication,
+                          BindingResult binding,
+                          @RequestParam(name = "latitude", required = false) String latitude,
+                          @RequestParam(name = "longitude", required = false) String longitude,
+                          @RequestParam(name = "accuracy", required = false) String accuracy,
+                          OAuth2AuthenticationToken authentication,
                           HttpServletRequest request, HttpServletResponse response, Model model,
                           RedirectAttributes redirect) {
         AuthenticatedUser user = AuthenticatedUser.from(authentication);
@@ -109,7 +129,7 @@ public class ScanController {
 
         PendingCheckIn pending = PendingCheckIn.from(request.getSession(false));
         CheckInOutcome outcome = checkIns.checkIn(sessionId, pending, user, registered ? null : nameForm,
-                ClientContext.from(request));
+                Geofence.Location.parse(latitude, longitude, accuracy), ClientContext.from(request));
         return switch (outcome) {
             case CheckInOutcome.CheckedIn _ -> {
                 PendingCheckIn.clear(request.getSession(false));
@@ -132,6 +152,20 @@ public class ScanController {
             case CheckInOutcome.SessionClosed _ -> message(model, response, HttpStatus.GONE,
                     "Check-in is closed", "This attendance session has ended.", null);
             case CheckInOutcome.RateLimited _ -> rateLimited(model, response);
+            case CheckInOutcome.WrongDomain wrong -> wrongDomain(wrong.allowedDomains(), user, model, response);
+            case CheckInOutcome.LocationRequired _ -> {
+                response.setStatus(HttpStatus.BAD_REQUEST.value());
+                model.addAttribute("locationError", "This class checks that you're in the room. Allow location "
+                        + "access when your phone asks, then tap Check in again.");
+                yield confirmPage(sessionId, user, registered, registered ? lockedNames(user) : nameForm, model);
+            }
+            case CheckInOutcome.OutsideGeofence outside -> {
+                response.setStatus(HttpStatus.FORBIDDEN.value());
+                model.addAttribute("locationError", "You seem to be " + approximately(outside.distanceMeters())
+                        + " from the classroom, so you can't check in from there. If you are in the room, move "
+                        + "closer to a window for a better signal and try again.");
+                yield confirmPage(sessionId, user, registered, registered ? lockedNames(user) : nameForm, model);
+            }
         };
     }
 
@@ -156,12 +190,44 @@ public class ScanController {
 
     private String confirmPage(UUID sessionId, AuthenticatedUser user, boolean registered, NameForm form,
                                Model model) {
+        SessionRules rules = checkIns.rules(sessionId);
         model.addAttribute("sessionId", sessionId);
-        model.addAttribute("courseName", checkIns.courseName(sessionId).orElse(""));
+        model.addAttribute("courseName", rules.courseName());
         model.addAttribute("email", user.email());
         model.addAttribute("registered", registered);
         model.addAttribute("nameForm", form);
+        model.addAttribute("locationRequired", rules.locationRequired());
         return "student/confirm";
+    }
+
+    /** The registered student's locked names, for re-showing the confirm page. */
+    private NameForm lockedNames(AuthenticatedUser user) {
+        return checkIns.findStudent(user)
+                .map(s -> new NameForm(s.getFirstName(), s.getLastName()))
+                .orElseGet(NameForm::new);
+    }
+
+    /**
+     * Rule 7. The way out keeps the scan: signing in again (account chooser, with the domain as a hint) rotates the
+     * session id but keeps the pending check-in, so the student can finish within the grace period.
+     */
+    private String wrongDomain(List<String> allowedDomains, AuthenticatedUser user, Model model,
+                               HttpServletResponse response) {
+        String domains = WorkspaceDomains.describe(allowedDomains);
+        model.addAttribute("actionUrl", "/oauth2/authorization/google");
+        model.addAttribute("actionLabel", "Choose another Google account");
+        return message(model, response, HttpStatus.FORBIDDEN, "Use your school account",
+                "This course only accepts " + domains + " accounts.",
+                (user.email() != null ? "You're signed in as " + user.email() + ". " : "")
+                        + "Sign in with your " + domains + " Google account to check in.");
+    }
+
+    /** "about 340 m" / "about 2.3 km": rounded, so it doesn't pretend to GPS precision. */
+    static String approximately(long meters) {
+        if (meters >= 1000) {
+            return "about " + String.format(Locale.ROOT, "%.1f", meters / 1000.0) + " km";
+        }
+        return "about " + Math.max(10, Math.round(meters / 10.0) * 10) + " m";
     }
 
     private String expiredScan(Model model, HttpServletResponse response) {

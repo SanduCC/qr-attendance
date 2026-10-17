@@ -25,9 +25,9 @@ See [CLAUDE.md](CLAUDE.md) for the full spec, anti-cheating rules and convention
 ## Teacher flow
 
 1. **My courses** (`/teacher/courses`) is the home page and shows one card per course. Each card shows the course code (if any) and the last session's date and count, e.g. "23 of 25 checked in".
-2. **Start attendance** is one click. It opens a 15-minute session (configurable) and reuses the expected headcount from the course's last session. The **Options** panel lets you set a different duration or expected headcount. The projector page opens straight away.
-3. **New course** only needs a name. The course code is optional.
-4. **History & exports** (`/teacher/courses/{id}`) lists every session of the course with its time window, Open/Closed status, count, and **Display / Excel / CSV** links.
+2. **Start attendance** is one click. It opens a 15-minute session (configurable) and reuses the expected headcount from the course's last session. The **Options** panel lets you set a different duration or expected headcount, or tick **Require location** (see [Location check](#location-check-optional)). The projector page opens straight away.
+3. **New course** only needs a name. The course code is optional, and so is the **Google Workspace domain lock** (see [Domain lock](#domain-lock-optional)).
+4. **History & exports** (`/teacher/courses/{id}`) lists every session of the course with its time window, Open/Closed status, count, and **Display / Excel / CSV** links. **Course settings** on the same page edits the name, code and domain lock.
 5. The **projector page** (`/sessions/{id}/display`) shows:
    - a big QR code that rotates every 15 s
    - a live "23 checked in / 25 expected" counter, with a warning when check-ins exceed the expected headcount
@@ -60,11 +60,28 @@ Each session can be downloaded in two formats:
 
 Files are named `<course code>_<date>`, or after the course name when there is no code.
 
+### Domain lock (optional)
+
+A course can accept only Google Workspace accounts of your school, e.g. `university.ro` (up to 5 domains, comma-separated; set when creating the course or later under **Course settings**). Empty means any Google account.
+
+- The check uses the **`hd` claim of the Google ID token**, which Google sets only for Workspace accounts. It never trusts the email address alone, so personal Gmail accounts are refused. Case doesn't matter, and a subdomain counts as a different domain.
+- It runs at check-in, before anything is written, and the student sees "This course only accepts @university.ro accounts" with a **Choose another Google account** button. Switching accounts keeps the scan, so they can still finish within the 3-minute grace period.
+- For a locked course the sign-in link also asks Google for that domain (`hd=…`, `prompt=select_account`). That's only a convenience: the server-side check is what counts.
+
+### Location check (optional)
+
+Off by default, because indoor GPS is unreliable. Tick **Require location** under **Options** when starting a session from a phone or laptop **in the classroom**: that device's position (browser geolocation) becomes the centre, with a radius of 100 m by default (25–1000 m).
+
+- Students on such a session are asked for their location when they tap **Check in**. The server computes the distance (haversine) and accepts when `distance − min(reported accuracy, 100 m) ≤ radius`: a phone that honestly reports ±60 m gets those 60 m, but claiming a huge inaccuracy can't stretch the fence by more than 100 m. A missing or unusable location is refused.
+- Permission denied, position unavailable and timeouts each get a clear message, and the student can retry within the grace period.
+- **Nothing about the student's location is stored**: the position is compared once and discarded. Only the session's centre and radius are kept.
+- Geolocation needs HTTPS (production has it). The location comes from the student's browser and **can be faked**, so it's a deterrent against checking in from home, not proof of presence. The headcount check and a look around the room still matter.
+
 ## Student flow
 
 1. Scan the QR code with the phone camera. This opens `/a/{sessionId}?t=…`, and the server checks the token **before** sign-in.
-2. A short privacy notice is shown, then **Continue with Google**. In-app browsers (WhatsApp, Instagram, …) can't do Google sign-in, so the page detects them and asks the student to open the link in Chrome or Safari instead.
-3. The first time only, the student confirms their first and last name, which are pre-filled from Google. After that the names are locked; only a teacher can correct them.
+2. A short privacy notice is shown (it says which school account to use when the course has a domain lock, and mentions the location check when it's on), then **Continue with Google**. In-app browsers (WhatsApp, Instagram, …) can't do Google sign-in, so the page detects them and asks the student to open the link in Chrome or Safari instead.
+3. The first time only, the student confirms their first and last name, which are pre-filled from Google. After that the names are locked; only a teacher can correct them. On a session with a location check, tapping **Check in** asks for the phone's location first.
 4. A success screen shows the student's name and check-in time. Scanning again shows "Already checked in at 09:02".
 
 ### Anti-cheat (summary)
@@ -78,7 +95,8 @@ Files are named `<course code>_<date>`, or after the course name when there is n
 | Headcount check | Display warns when check-ins exceed the expected headcount (manual entries count too) |
 | Manual entries | Teacher-only, marked `manual` with the teacher's id; no device/IP hash, so they never block or weaken a real scan. A DB check keeps every real scan's device and IP hash mandatory |
 | Rate limiting | Per IP (120/min, since a whole class can share one Wi-Fi IP) and per device (10/min), in Redis |
-| Later | Geofence (#3), Google Workspace domain lock (#4) |
+| Location check (optional, off by default) | Browser geolocation vs the classroom centre captured at session start; `distance − min(accuracy, 100 m) ≤ radius`; nothing stored; a deterrent, not proof |
+| Domain lock (optional, per course) | The Google ID token's `hd` claim must be one of the course's Workspace domains; consumer Gmail has no `hd` |
 
 IP addresses and device IDs are stored only as peppered hashes. Attendance data is purged after the academic year ends (default 30 Sep plus 30 days' grace).
 
@@ -201,7 +219,7 @@ All configuration comes from environment variables. Secrets are never committed;
 | `JOBS_TRIGGER_SERVICE_ACCOUNT` | *(empty = disabled)* | the Google service account whose OIDC token may call `POST /internal/jobs/daily` (Cloud Scheduler) |
 | `JOBS_TRIGGER_AUDIENCE` | `{PUBLIC_BASE_URL}/internal/jobs/daily` | the exact token audience that endpoint accepts |
 
-Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits and retention. Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
+Other settings have defaults in [`application.yml`](src/main/resources/application.yml) under `attendance.*`: session default and maximum duration (15 min / 3 h), check-in grace (3 min), QR window (15 s), rate limits, retention, and the location check (`attendance.geofence.default-radius-m` 100, `min-radius-m` 25, `max-radius-m` 1000, `max-accuracy-credit-m` 100). Override them with Spring's usual env-var binding, e.g. `ATTENDANCE_SESSION_DEFAULTDURATION=20m`.
 
 **HTTP sessions** (the scan bound to the browser, the OAuth login state, the sign-in itself) are stored in Redis with Spring Session, under `qra:session:sessions:<id>`. Users stay signed in across deploys and restarts, and several app instances share them. The session cookie is `SESSION` (HttpOnly, `Secure` unless `COOKIE_SECURE=false`, SameSite=Lax). The idle timeout is `server.servlet.session.timeout` (60 min), and an open projector page keeps its session alive. If Redis is down, pages that need a session answer 503 "try again in a minute" and the rate limiter lets requests through. A session the app can't read back after an upgrade is discarded, so the user just signs in again.
 
@@ -248,7 +266,8 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - **Headers** on every response (`SecurityConfig`): a strict CSP (`'self'` only, no inline scripts or styles,
   `frame-ancestors 'none'`), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` (the scan URL
-  carries the QR token), a `Permissions-Policy` that turns off camera, microphone, geolocation and similar features,
+  carries the QR token), a `Permissions-Policy` that turns off camera, microphone and similar features
+  (geolocation is `(self)` only, for the optional location check),
   and cross-origin isolation (`COOP same-origin`, `COEP require-corp`, `CORP same-origin`). Pages are `no-store`.
 - **Cookies:** `SESSION` and `device_id` are HttpOnly, Secure and SameSite=Lax.
 - **On every PR:** gitleaks, Semgrep and CodeQL (required), plus Dependabot alerts and security updates.
@@ -261,5 +280,5 @@ Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 Tracked as [GitHub issues](https://github.com/SanduCC/qr-attendance/issues). The main open ones:
 
 - **Operations:** #31 custom domain · #1 upgrade to Spring Boot 4.x
-- **Features:** #2 Sign in with Apple · #3 optional geofence · #4 Google Workspace domain lock per course · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course
-- **Done recently:** #5 teachers can edit student names · #10 manual entry by the teacher
+- **Features:** #2 Sign in with Apple · #6 live table via SSE instead of polling · #8 per-student attendance stats · #9 multiple teachers per course
+- **Done recently:** #5 teachers can edit student names · #10 manual entry by the teacher · #3 optional geofence · #4 Google Workspace domain lock per course

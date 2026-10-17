@@ -16,9 +16,10 @@ A teacher opens an attendance session for a class. A large screen or projector s
 ## Domain model
 ```
 Teacher(id, email, name NULL, active, added_by NULL, created_at, last_login_at NULL)
-Course(id, teacher_id, name, code)
+Course(id, teacher_id, name, code NULL, allowed_domains NULL)   -- allowed_domains: comma-separated hd domains (rule 7)
 AttendanceSession(id UUID, course_id, opened_at, closes_at, status[OPEN|CLOSED],
                   expected_headcount NULL, geofence_lat NULL, geofence_lng NULL, geofence_radius_m NULL)
+    -- geofence_*: the classroom circle (rule 6), all NULL = no location check
 Student(id, provider[GOOGLE|APPLE], provider_subject, email, first_name, last_name, created_at)
     UNIQUE(provider, provider_subject)
 AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash NULL, ip_hash NULL, user_agent,
@@ -63,8 +64,12 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
 3. **One check-in per account per session.** Enforce it with a DB unique constraint, not only in app code. Handle `DataIntegrityViolationException` → "already checked in".
 4. **One check-in per device per session.** On first visit, set a long-lived, httpOnly, signed `device_id` cookie. Store only its hash. This stops one phone from logging into several friends' Google accounts back to back. (It's not bulletproof against incognito mode; that's what rule 5 is for.)
 5. **Headcount sanity check.** If `expected_headcount` is set, the display shows a warning when check-ins exceed it. The teacher can also do a quick visual count.
-6. **Optional geofence (phase 2).** Request browser geolocation; reject if outside the radius. Off by default because indoor GPS is unreliable.
-7. **Optional domain restriction.** If the school uses Google Workspace, restrict to the `hd` claim (e.g. `@university.ro`). Configurable per course.
+6. **Optional geofence (phase 2, implemented, #3).** Request browser geolocation; reject if outside the radius. Off by default because indoor GPS is unreliable.
+   The teacher ticks "Require location" when starting a session; that device's position becomes the centre, radius 100 m by default (25–1000 m, `attendance.geofence.*`).
+   A student passes when `distance - min(accuracy, 100 m) <= radius` (haversine; the accuracy credit is capped). A missing location is rejected when the geofence is on.
+   Student coordinates are compared and discarded, never stored. Location is client-reported and spoofable: a deterrent, not proof.
+7. **Optional domain restriction (implemented, #4).** If the school uses Google Workspace, restrict to the `hd` claim (e.g. `@university.ro`). Configurable per course (`course.allowed_domains`, up to 5 domains, case-insensitive).
+   The check uses the ID token's `hd` claim only, never the email suffix, and runs in `CheckInService` before anything is written. The `hd` authorization parameter is only a hint.
 8. **Rate-limit** check-in attempts per IP and per device (Redis, e.g. 10/min).
 
 ## API / routes
@@ -74,7 +79,8 @@ AttendanceRecord(id, session_id, student_id NULL, checked_in_at, device_id_hash 
 | POST | `/admin/teachers` | admin | add a teacher by email (or reactivate) |
 | POST | `/admin/teachers/{id}/deactivate` · `/activate` | admin | revoke / restore teacher access |
 | GET | `/teacher/courses` | teacher | list courses |
-| POST | `/teacher/courses/{id}/sessions` | teacher | open session |
+| POST | `/teacher/courses/{id}/edit` | teacher | edit name, code, Workspace domain lock |
+| POST | `/teacher/courses/{id}/sessions` | teacher | open session (optionally with a location check) |
 | GET | `/sessions/{id}/display` | teacher | QR + live counter page |
 | GET | `/sessions/{id}/qr-token` | teacher | current token (polled every ~10s) |
 | GET | `/sessions/{id}/records` | teacher | JSON/SSE list of check-ins |
@@ -140,8 +146,8 @@ Required env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `QR_HMAC_SECRET`, `HAS
 
 ## MVP scope
 **In:** Google login, courses, sessions, rotating QR, one-per-account + one-per-device, live teacher table, CSV export.
-**Later:** Apple login, geofence, Workspace domain lock, stats per student, multiple teachers per course.
-**Done after the MVP:** teachers edit student names (#5), manual entry by the teacher (#10).
+**Later:** Apple login, stats per student, multiple teachers per course.
+**Done after the MVP:** teachers edit student names (#5), manual entry by the teacher (#10), geofence (#3), Workspace domain lock (#4).
 
 ## When working on this repo
 - Don't weaken any anti-cheating rule without asking.
