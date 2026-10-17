@@ -22,11 +22,18 @@ class ManualEntryRulesTest extends IntegrationTestSupport {
 
     private static final String TEACHER = "prof.rules@university.example.ro";
 
-    /** A course locked to university.example.ro, with an open session that requires location. */
-    private UUID lockedGeofencedSession() {
+    /**
+     * A course locked to university.example.ro, with an open session that requires location. {@code pastStudent},
+     * if given, attended an earlier session (so the teacher can pick them for a manual entry).
+     */
+    private UUID lockedGeofencedSession(Student pastStudent) {
         Teacher teacher = createTeacher(TEACHER);
         Course course = courseService.createCourse(teacher.getId(), "Algoritmi", "CS101",
                 List.of("university.example.ro"));
+        if (pastStudent != null) {
+            UUID lastWeek = sessionService.openSession(teacher.getId(), course.getId(), 15, null).getId();
+            insertRecord(lastWeek, pastStudent);
+        }
         return sessionService.openSession(teacher.getId(), course.getId(), 15, null,
                 new Geofence(44.4386, 26.0494, 100)).getId();
     }
@@ -37,9 +44,9 @@ class ManualEntryRulesTest extends IntegrationTestSupport {
 
     @Test
     void manualEntriesAreNotBlockedByTheDomainLockOrTheGeofence() throws Exception {
-        UUID sessionId = lockedGeofencedSession();
-        // A course student whose account has no Workspace hd (e.g. checked in before the lock was set).
+        // A course student whose account has no Workspace hd (checked in last week, before the lock was set).
         Student gmail = insertStudent("sub-gmail", "Ana", "Popescu");
+        UUID sessionId = lockedGeofencedSession(gmail);
 
         mvc.perform(post("/sessions/{id}/records", sessionId).with(csrf()).with(teacher())
                         .param("studentId", String.valueOf(gmail.getId())))
@@ -49,12 +56,13 @@ class ManualEntryRulesTest extends IntegrationTestSupport {
                 .andExpect(status().isCreated());
 
         assertThat(recordRepository.countBySessionId(sessionId)).isEqualTo(2);
-        assertThat(recordRepository.findAll()).allMatch(AttendanceRecord::isManual);
+        assertThat(recordRepository.findAll()).filteredOn(r -> r.getSessionId().equals(sessionId))
+                .allMatch(AttendanceRecord::isManual);
     }
 
     @Test
     void theSameAccountScanningIsStillHeldToBothRules() throws Exception {
-        UUID sessionId = lockedGeofencedSession();
+        UUID sessionId = lockedGeofencedSession(null);
         Browser phone = newBrowser();
         scan(phone, sessionId, validToken(sessionId)).andExpect(status().isOk());
 
