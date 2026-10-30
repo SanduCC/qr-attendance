@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.sanducc.attendance.checkin.Provider;
 import io.github.sanducc.attendance.checkin.Student;
+import io.github.sanducc.attendance.common.EmailAddresses;
 import io.github.sanducc.attendance.common.EmailAuthenticationToken;
 import io.github.sanducc.attendance.config.AppOidcUserService;
 import io.github.sanducc.attendance.support.IntegrationTestSupport;
@@ -384,7 +385,8 @@ class EmailSignInFlowTest extends IntegrationTestSupport {
                 .andExpect(model().attribute("email", ANA));
         assertThat(codeKeys()).isEmpty();
         browser.perform(get("/login/email/code")).andExpect(redirectedUrl("/login/email"));
-        assertThat(output.getAll()).contains("a***@example.ro").doesNotContain(ANA);
+        assertThat(output.getAll()).contains("Sign-in code to " + EmailAddresses.logId(hasher, ANA) + " not sent")
+                .doesNotContain(ANA).doesNotContain("a***@");
 
         mail.reset();
         requestEmailCode(browser, ANA);
@@ -500,8 +502,10 @@ class EmailSignInFlowTest extends IntegrationTestSupport {
                 .andExpect(redirectedUrl(doneUrl(f.sessionId())));
 
         String logs = output.getAll();
-        assertThat(logs).contains("Sign-in code sent to a***@example.ro")
-                .doesNotContain(ANA).doesNotContain("ana.pop");
+        String anaLogId = EmailAddresses.logId(hasher, ANA);
+        assertThat(logs).contains("Sign-in code sent to " + anaLogId)
+                .contains("Signed in with an email code: " + anaLogId)
+                .doesNotContain(ANA).doesNotContain("ana.pop").doesNotContain("a***@");
         assertThat(Pattern.compile("(?<!\\d)" + code + "(?!\\d)").matcher(logs).find())
                 .as("the code appears in the logs").isFalse();
     }
