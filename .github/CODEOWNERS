@@ -1,0 +1,4 @@
+# The maintainer owns everything. This documents ownership and makes GitHub request a review from @SanduCC on every
+# PR; reviews are not required by branch protection (the owner can't approve their own PRs). The real gate for outside
+# or sensitive PRs is scripts/merge_pr.py (--reviewed-sha), see CONTRIBUTING.md > Merging.
+* @SanduCC

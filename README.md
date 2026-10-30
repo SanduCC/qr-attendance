@@ -297,7 +297,7 @@ For other hosts (Oracle Cloud Always Free, a cheap EU VPS with Caddy, university
   - Semgrep
   - CodeQL
 - Branches are named `feature/…`, `bugfix/…` or `hotfix/…`.
-- PRs are squash-merged, with `gh pr merge <n> --auto --squash` or `python scripts/merge_pr.py <n>`. The script updates a branch that's behind, waits for the checks, then merges.
+- PRs are squash-merged with `python scripts/merge_pr.py <n>` (or `gh pr merge <n> --auto --squash`, only for your own PRs). The script updates a branch that's behind, waits for the checks, then merges. PRs from forks or other authors, and PRs touching CI, build or test files, are guarded: green checks don't count (a PR can rewrite its own checks), so they merge only after the maintainer read the diff and passes `--reviewed-sha <head sha>`.
 - Dependabot runs on Mondays. Its grouped Maven minor/patch PR merges itself once the checks pass.
 
 Details in [CONTRIBUTING.md](CONTRIBUTING.md).
