@@ -120,7 +120,9 @@ soon as an advisory is published, not just on Mondays.
 
 Nothing merges by itself. Every Dependabot PR (version and security updates) is reviewed by the owner, who reads the
 changelog / release notes of the bumped packages, and merged by the owner with `python scripts/merge_pr.py <n>` like
-any other PR. If one sits "behind master", the script updates it, or comment `@dependabot rebase` on it.
+any other PR. Dependabot PRs touch `pom.xml` or `.github/`, so the script guards them (see "Merging"): read the
+diff and pass `--reviewed-sha`. If one sits "behind master", comment `@dependabot rebase` on it (guarded PRs aren't
+refreshed by the script), wait for the checks and review the new head.
 
 ## Rules that always apply
 
