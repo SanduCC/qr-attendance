@@ -111,14 +111,18 @@ protection rule (Settings > Branches > master), or PRs will wait forever for a c
 ## Dependabot
 
 Runs every Monday 05:00 (Europe/Bucharest) and opens PRs that go through the same checks:
-- **maven**: minor + patch updates grouped in one PR, majors one per PR (Spring Boot's too). The grouped
-  minor/patch PR (`dependabot/maven/maven-minor-patch-*`) **merges itself**: `dependabot-auto-merge.yml` turns on auto-merge, and GitHub squash-merges once every required check is
-  green. If it sits "behind master", comment `@dependabot rebase` on it.
+- **maven**: minor + patch updates grouped in one PR, majors one per PR (Spring Boot's too).
 - **github-actions**: all actions in one PR (updates the SHA and the version comment).
 - **docker / docker-compose**: base images; Postgres/Redis majors are ignored.
 
 Dependabot **alerts** and **security updates** are enabled on the repo, so vulnerable dependencies get fix PRs as
 soon as an advisory is published, not just on Mondays.
+
+Nothing merges by itself. Every Dependabot PR (version and security updates) is reviewed by the owner, who reads the
+changelog / release notes of the bumped packages, and merged by the owner with `python scripts/merge_pr.py <n>` like
+any other PR. Dependabot PRs touch `pom.xml` or `.github/`, so the script guards them (see "Merging"): read the
+diff and pass `--reviewed-sha`. If one sits "behind master", comment `@dependabot rebase` on it (guarded PRs aren't
+refreshed by the script), wait for the checks and review the new head.
 
 ## Rules that always apply
 

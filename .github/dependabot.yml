@@ -1,5 +1,6 @@
 # Dependabot version updates (see CONTRIBUTING.md). Its PRs go through the same CI + security checks and the
-# scripts/merge_pr.py gate as any other PR. Dependabot alerts and security updates are also enabled on the repo.
+# scripts/merge_pr.py gate as any other PR; nothing auto-merges, the owner reviews the release notes and merges each
+# one by hand. Dependabot alerts and security updates are also enabled on the repo.
 version: 2
 updates:
   - package-ecosystem: maven
