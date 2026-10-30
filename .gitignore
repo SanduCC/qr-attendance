@@ -1,6 +1,7 @@
 target/
 .idea/
 *.iml
+__pycache__/
 .vscode/
 .DS_Store
 .env
