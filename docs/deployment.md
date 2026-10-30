@@ -340,9 +340,10 @@ app (changes only to `*.md`, `docs/`, `scripts/`, `.github/` other than `deploy.
 If any step fails before 6, users never see the new revision. The job does nothing until the two repo variables
 below are set.
 
-**Merges by Dependabot auto-merge** are made with `GITHUB_TOKEN`, which doesn't trigger push workflows, so they are
-not deployed on their own. They go out with the next deploy (the image is always built from the merged commit, which
-contains them), or run the workflow by hand.
+**Merges made with `GITHUB_TOKEN`** (e.g. by another workflow) don't trigger push workflows, so they are not deployed
+on their own. They go out with the next deploy (the image is always built from the merged commit, which contains
+them), or run the workflow by hand. Nothing in this repo merges that way today: every PR, Dependabot's included, is
+merged by the owner.
 
 #### Migrations must be backward compatible
 

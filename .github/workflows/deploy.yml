@@ -7,7 +7,7 @@ name: deploy
 # - Auth: Workload Identity Federation, no JSON keys. The GCP provider only accepts tokens for this repository on
 #   refs/heads/master, so pull requests, other branches and forks can't deploy, even with a copy of this file.
 # - The job is skipped until the repo variables GCP_WIF_PROVIDER and GCP_DEPLOY_SA are set.
-# - Merges made with GITHUB_TOKEN (Dependabot auto-merge) don't trigger push workflows. They go out with the next
+# - Merges made with GITHUB_TOKEN (e.g. by another workflow) don't trigger push workflows. They go out with the next
 #   deploy, or run this workflow by hand: Actions > deploy > Run workflow (master).
 # - Flyway migrations run when the new revision starts, i.e. BEFORE traffic moves, while the previous revision
 #   still serves: migrations must be backward compatible (see docs/deployment.md).

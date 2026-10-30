@@ -68,39 +68,61 @@ fails any PR whose branch doesn't follow this.
 every required check must be green and the branch must be up to date with `master`. Only squash merges are allowed
 (linear history) and merged branches are deleted automatically.
 
-Either let GitHub merge it as soon as the checks pass:
+Green checks are not a review. A PR can edit the workflows that produce its own checks (turn `./mvnw verify` into
+`true`, say) and the job names stay the same, so all required checks go green and branch protection is satisfied.
+**A PR that changes `.github/workflows/` proves nothing with green checks.** That is why outside PRs are merged only
+by the maintainer, after reading the full diff, with the script:
 
 ```bash
-gh pr merge <pr-number> --auto --squash
-```
-
-or use the script, which also refreshes a branch that has fallen behind and waits for the rerun checks:
-
-```bash
-python scripts/merge_pr.py <pr-number> --dry-run   # report only
+python scripts/merge_pr.py <pr-number> --dry-run   # report only, including whether the PR is guarded
 python scripts/merge_pr.py <pr-number>             # refresh branch if behind, wait for checks, squash-merge, delete branch
+python scripts/merge_pr.py <pr-number> --reviewed-sha <head-sha>   # guarded PR: merge the commit you reviewed
 ```
+
+The script **guards** a PR when any of these is true, and prints the reasons and the matching files:
+- it comes from a fork;
+- its author is not `SanduCC` or Dependabot;
+- it touches a sensitive path: `.github/`, `mvnw`, `mvnw.cmd`, `.mvn/`, `pom.xml`, `Dockerfile`, `.dockerignore`,
+  `scripts/`, `src/test/`, `.zap/` or `.gitattributes` (these change what the checks run, or how the build and the
+  image are made), or its file list can't be read in full.
+
+A guarded PR is merged only with `--reviewed-sha` set to its current full 40-character head SHA (the dry run prints
+it): read `gh pr diff <pr-number>` at that commit, then pass the SHA. If anything is pushed after your review the SHA no
+longer matches and the script refuses, so review again. A guarded PR is never refreshed automatically (a refresh is a
+new head nobody reviewed): if it is behind `master`, update it (`@dependabot rebase` for Dependabot), wait for the
+checks and review the new head. Every merge, guarded or not, passes `--match-head-commit` with the commit the script
+checked, so a push between the check and the merge fails the merge instead of landing.
+
+`gh pr merge <pr-number> --auto --squash` (GitHub merges as soon as the checks pass) is only for your own PRs that the
+script would not guard. **Never turn on `--auto` for a PR you didn't write**: it merges whatever the checks say, and
+the PR controls the checks.
 
 A merge that touches the app deploys it to Cloud Run (`deploy.yml`, see
 [docs/deployment.md](docs/deployment.md#continuous-deployment-github-actions--cloud-run)), so don't merge app changes
 during a class, and keep Flyway migrations backward compatible with the previous release.
 
-The script refuses if a required check isn't green, the PR conflicts, is a draft, or targets anything but `master`.
-When the branch is behind `master` it updates it, waits for the checks to rerun on the new commit and only then merges.
+The script refuses if a required check isn't green, the PR conflicts, is a draft, targets anything but `master`, or is
+guarded without a matching `--reviewed-sha`. When an unguarded branch is behind `master` it updates it, waits for the
+checks to rerun on the new commit and only then merges. Its pure functions (path classification, guard decision) have
+unit tests: `python -m unittest discover -s scripts` (stdlib only, no CI job).
 If you add or rename a CI job, update `REQUIRED_CHECKS` in the script **and** the required checks in the branch
 protection rule (Settings > Branches > master), or PRs will wait forever for a check that no longer exists.
 
 ## Dependabot
 
 Runs every Monday 05:00 (Europe/Bucharest) and opens PRs that go through the same checks:
-- **maven**: minor + patch updates grouped in one PR, majors one per PR (Spring Boot's too). The grouped
-  minor/patch PR (`dependabot/maven/maven-minor-patch-*`) **merges itself**: `dependabot-auto-merge.yml` turns on auto-merge, and GitHub squash-merges once every required check is
-  green. If it sits "behind master", comment `@dependabot rebase` on it.
+- **maven**: minor + patch updates grouped in one PR, majors one per PR (Spring Boot's too).
 - **github-actions**: all actions in one PR (updates the SHA and the version comment).
 - **docker / docker-compose**: base images; Postgres/Redis majors are ignored.
 
 Dependabot **alerts** and **security updates** are enabled on the repo, so vulnerable dependencies get fix PRs as
 soon as an advisory is published, not just on Mondays.
+
+Nothing merges by itself. Every Dependabot PR (version and security updates) is reviewed by the owner, who reads the
+changelog / release notes of the bumped packages, and merged by the owner with `python scripts/merge_pr.py <n>` like
+any other PR. Dependabot PRs touch `pom.xml` or `.github/`, so the script guards them (see "Merging"): read the
+diff and pass `--reviewed-sha`. If one sits "behind master", comment `@dependabot rebase` on it (guarded PRs aren't
+refreshed by the script), wait for the checks and review the new head.
 
 ## Rules that always apply
 
