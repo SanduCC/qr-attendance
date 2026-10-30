@@ -4,8 +4,10 @@ name: deploy
 # image, pushes it to Artifact Registry and deploys it as a new revision that gets traffic only after its
 # /actuator/health is UP. One-time setup, IAM and rollback: docs/deployment.md, "Continuous deployment".
 #
-# - Auth: Workload Identity Federation, no JSON keys. The GCP provider only accepts tokens for this repository on
-#   refs/heads/master, so pull requests, other branches and forks can't deploy, even with a copy of this file.
+# - Auth: Workload Identity Federation, no JSON keys. The job runs in the GitHub environment `production` (deployment
+#   branches: master only), and the GCP provider only accepts tokens for this repository on refs/heads/master, from
+#   this workflow file, in that environment. Pull requests, other branches, forks and other workflows on master can't
+#   deploy, even with a copy of this file.
 # - The job is skipped until the repo variables GCP_WIF_PROVIDER and GCP_DEPLOY_SA are set.
 # - Merges made with GITHUB_TOKEN (Dependabot auto-merge) don't trigger push workflows. They go out with the next
 #   deploy, or run this workflow by hand: Actions > deploy > Run workflow (master).
@@ -52,6 +54,11 @@ jobs:
     if: github.ref == 'refs/heads/master' && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOY_SA != ''
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Deployment branches of this environment: master only (Settings > Environments, docs/deployment.md).
+    # Its name is in the OIDC token (`environment` claim) that the GCP provider checks.
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.service_url }}
     permissions:
       contents: read
       id-token: write  # OIDC token for Workload Identity Federation

@@ -326,8 +326,10 @@ app (changes only to `*.md`, `docs/`, `scripts/`, `.github/` other than `deploy.
 `gh workflow run deploy.yml --ref master`.
 
 1. Authenticate with **Workload Identity Federation**: GitHub's OIDC token is exchanged for a short-lived token of the
-   deployer service account. No JSON key exists anywhere. The provider accepts only tokens for this repository on
-   `refs/heads/master`, so pull requests, other branches and forks can't deploy.
+   deployer service account. No JSON key exists anywhere. The job runs in the GitHub environment `production`, and
+   the provider accepts only tokens for this repository on `refs/heads/master`, from `deploy.yml`, in that
+   environment. So pull requests, other branches, forks and other workflows on `master` (even ones with
+   `id-token: write`) can't deploy.
 2. Refuse to deploy a commit older than the one last deployed (protects against *Re-run jobs* on an old run).
 3. `docker build` the `Dockerfile` on the runner, push `…/qr-attendance/app:<short-sha>` to Artifact Registry.
 4. `gcloud run deploy --image … --no-traffic --tag candidate`: only the image changes (env vars, secrets, service
@@ -374,13 +376,14 @@ gcloud services enable sts.googleapis.com iamcredentials.googleapis.com --projec
 gcloud iam workload-identity-pools create github --project "$PROJECT" --location global \
   --display-name "GitHub Actions"
 
-# 3. A provider that only accepts this repository's master branch
+# 3. A provider that only accepts deploy.yml on this repository's master branch, in the production environment
+#    (create the environment too, see "The production environment" below)
 gcloud iam workload-identity-pools providers create-oidc qr-attendance --project "$PROJECT" --location global \
   --workload-identity-pool github \
   --display-name "SanduCC/qr-attendance master" \
   --issuer-uri "https://token.actions.githubusercontent.com" \
   --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_id=assertion.repository_id,attribute.ref=assertion.ref" \
-  --attribute-condition "assertion.repository == '$GITHUB_REPO' && assertion.repository_id == '$GITHUB_REPO_ID' && assertion.ref == 'refs/heads/master'"
+  --attribute-condition "assertion.repository == '$GITHUB_REPO' && assertion.repository_id == '$GITHUB_REPO_ID' && assertion.ref == 'refs/heads/master' && assertion.workflow_ref == '$GITHUB_REPO/.github/workflows/deploy.yml@refs/heads/master' && assertion.environment == 'production'"
 
 # 4. The deployer service account (no project-level roles)
 gcloud iam service-accounts create qr-attendance-deployer --project "$PROJECT" \
@@ -414,6 +417,49 @@ gh workflow run deploy.yml --repo "$GITHUB_REPO" --ref master
 ```
 
 The deployer doesn't need access to the secrets: Cloud Run checks that the *runtime* service account can read them.
+
+#### The production environment
+
+The `deploy` job runs in the GitHub environment **`production`** (*Settings > Environments*). Its deployment branch
+policy allows only `master`, so GitHub refuses to run the job from any other branch or tag, and every run shows up
+as a deployment (with the service URL) on the repository page. The OIDC token of a job in an environment carries
+`environment: production` and `sub: repo:SanduCC/qr-attendance:environment:production`; `ref` stays
+`refs/heads/master`, and the service account binding (step 5) matches on `repository_id`, so it is unaffected.
+
+Optional: add a **required reviewer** to the environment for an approve-each-deploy gate. Every run then waits on
+*Review deployments* before it gets any credentials, so merges to `master` no longer go out on their own.
+
+To re-create it (e.g. for a re-created repository):
+
+```bash
+gh api -X PUT "repos/$GITHUB_REPO/environments/production" --input - <<'EOF'
+{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+EOF
+gh api -X POST "repos/$GITHUB_REPO/environments/production/deployment-branch-policies" \
+  -f name=master -f type=branch
+```
+
+#### Narrowing an existing provider
+
+A provider created with the older condition (`... && assertion.ref == 'refs/heads/master'` only) accepts tokens from
+any workflow on `master` of this repository that has `id-token: write`. To restrict it to `deploy.yml` in
+`production`, in this order:
+
+1. Merge the change that puts the `deploy` job in the `production` environment first: tokens of runs outside the
+   environment have no `environment` claim and would be refused.
+2. Update the condition (only the condition changes; the attribute mapping and the service account binding stay):
+
+   ```bash
+   gcloud iam workload-identity-pools providers update-oidc qr-attendance --project "$PROJECT" --location global \
+     --workload-identity-pool github \
+     --attribute-condition "assertion.repository == '$GITHUB_REPO' && assertion.repository_id == '$GITHUB_REPO_ID' && assertion.ref == 'refs/heads/master' && assertion.workflow_ref == '$GITHUB_REPO/.github/workflows/deploy.yml@refs/heads/master' && assertion.environment == 'production'"
+   ```
+
+3. Check that a deploy still authenticates: `gh workflow run deploy.yml --repo "$GITHUB_REPO" --ref master`, then
+   `gh run watch --repo "$GITHUB_REPO"`. A manual (`workflow_dispatch`) run on `master` carries the same `ref`,
+   `workflow_ref` and `environment` claims as a push run, so both pass. If the auth step is rejected by the
+   attribute condition, a claim doesn't match: put the previous condition back with the same command while you look
+   into it.
 
 **Image retention.** A revision whose image was deleted can no longer start an instance, and with min-instances 0
 every cold start pulls the image. Keep at least the newest 3 versions (current, previous for rollback, and one failed
