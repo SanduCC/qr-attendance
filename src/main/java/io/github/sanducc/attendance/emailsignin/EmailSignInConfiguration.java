@@ -36,7 +36,8 @@ public class EmailSignInConfiguration {
     }
 
     @Bean
-    EmailCodeMailer emailCodeMailer(ObjectProvider<JavaMailSender> mailSenders, EmailSignInProperties properties) {
+    EmailCodeMailer emailCodeMailer(ObjectProvider<JavaMailSender> mailSenders, EmailSignInProperties properties,
+                                    PepperedHasher hasher) {
         JavaMailSender mailSender = mailSenders.getIfAvailable();
         if (mailSender == null) {
             throw new IllegalStateException("attendance.email-sign-in.enabled is true but no mail server is "
@@ -46,7 +47,7 @@ public class EmailSignInConfiguration {
         if (mailSender instanceof JavaMailSenderImpl smtp) {
             requireTls(smtp);
         }
-        return new EmailCodeMailer(mailSender, properties);
+        return new EmailCodeMailer(mailSender, properties, hasher);
     }
 
     @Bean

@@ -342,9 +342,10 @@ app (changes only to `*.md`, `docs/`, `scripts/`, `.github/` other than `deploy.
 If any step fails before 6, users never see the new revision. The job does nothing until the two repo variables
 below are set.
 
-**Merges by Dependabot auto-merge** are made with `GITHUB_TOKEN`, which doesn't trigger push workflows, so they are
-not deployed on their own. They go out with the next deploy (the image is always built from the merged commit, which
-contains them), or run the workflow by hand.
+**Merges made with `GITHUB_TOKEN`** (e.g. by another workflow) don't trigger push workflows, so they are not deployed
+on their own. They go out with the next deploy (the image is always built from the merged commit, which contains
+them), or run the workflow by hand. Nothing in this repo merges that way today: every PR, Dependabot's included, is
+merged by the owner.
 
 #### Migrations must be backward compatible
 
@@ -690,8 +691,8 @@ Remove-Item $tmp
 ```
 
 Then test it once yourself: open `/login/email` on a phone, request a code to a personal inbox, check that it arrives
-(and not in spam), and sign in. The Cloud Run log shows `Sign-in code sent to a***@…` with a masked address; codes and
-full addresses are never logged. To turn it off again, set `EMAIL_SIGN_IN_ENABLED=false` in the same way; email
+(and not in spam), and sign in. The Cloud Run log shows `Sign-in code sent to email#…`: the address appears only as a short
+peppered hash (the same for every line about it); codes and addresses are never logged. To turn it off again, set `EMAIL_SIGN_IN_ENABLED=false` in the same way; email
 students keep their attendance.
 
 **Rotating the key:** generate a new SMTP key in Brevo, then add it with `& $gcloud secrets versions add mail-password

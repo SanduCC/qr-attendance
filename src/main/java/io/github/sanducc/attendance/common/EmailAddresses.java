@@ -54,7 +54,16 @@ public final class EmailAddresses {
         return normalizedEmail.substring(normalizedEmail.lastIndexOf('@') + 1);
     }
 
-    /** For logs: {@code ana.popescu@x.ro} becomes {@code a***@x.ro}. Never log the full address. */
+    /**
+     * How an address appears in logs: {@code email#} plus a short peppered hash ({@link PepperedHasher#logId}), the
+     * same for every line about one address, but neither the address nor any part of it. Never log an address
+     * (not even {@link #mask masked}).
+     */
+    public static String logId(PepperedHasher hasher, String normalizedEmail) {
+        return normalizedEmail == null ? "email#(none)" : "email#" + hasher.logId("email", normalizedEmail);
+    }
+
+    /** For {@code toString()}: {@code ana.popescu@x.ro} becomes {@code a***@x.ro}. Never log the full address. */
     public static String mask(String email) {
         if (email == null) {
             return "(none)";

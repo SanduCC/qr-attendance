@@ -2,6 +2,7 @@ package io.github.sanducc.attendance.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.sanducc.attendance.support.TestProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -50,6 +51,26 @@ class EmailAddressesTest {
         assertThat(EmailAddresses.mask("a@x.ro")).isEqualTo("a***@x.ro");
         assertThat(EmailAddresses.mask(null)).isEqualTo("(none)");
         assertThat(EmailAddresses.mask("no-at")).isEqualTo("***");
+    }
+
+    @Test
+    void logIdIsAStablePepperedTagWithNoPartOfTheAddress() {
+        PepperedHasher hasher = new PepperedHasher(TestProperties.defaults());
+        String id = EmailAddresses.logId(hasher, "ana.popescu@example.ro");
+
+        assertThat(id).matches("email#[0-9a-f]{" + PepperedHasher.LOG_ID_LENGTH + "}")
+                .doesNotContain("ana").doesNotContain("example").doesNotContain("@");
+        assertThat(EmailAddresses.logId(hasher, "ana.popescu@example.ro")).as("same address, same tag").isEqualTo(id);
+        assertThat(EmailAddresses.logId(hasher, "ana.pop@example.ro")).isNotEqualTo(id);
+        assertThat(EmailAddresses.logId(hasher, null)).isEqualTo("email#(none)");
+    }
+
+    @Test
+    void logIdDependsOnThePepper() {
+        PepperedHasher otherPepper = new PepperedHasher(TestProperties.with(TestProperties.QR_SECRET,
+                "another-unit-test-pepper-0123456789abcdef", true));
+        assertThat(EmailAddresses.logId(otherPepper, "ana@example.ro"))
+                .isNotEqualTo(EmailAddresses.logId(new PepperedHasher(TestProperties.defaults()), "ana@example.ro"));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.github.sanducc.attendance.config.session;
 
+import io.github.sanducc.attendance.common.LogSafe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -63,7 +64,9 @@ public class SessionStoreUnavailableFilter extends OncePerRequestFilter {
             if (unavailable == null) {
                 throw e;
             }
-            log.warn("{} {} failed: {}", request.getMethod(), request.getRequestURI(), unavailable.getMessage());
+            // Method and path come from the client: neutralized so they can't forge log lines.
+            log.warn("{} {} failed: {}", LogSafe.of(request.getMethod()), LogSafe.of(request.getRequestURI()),
+                    unavailable.getMessage());
             if (response.isCommitted()) {
                 return; // too late for a clean page; the client sees a truncated response
             }

@@ -83,21 +83,21 @@ public class EmailSignInService {
             return new SendOutcome.WrongDomain(allowedDomains);
         }
         if (!withinSendLimits(email, client)) {
-            log.info("Sign-in code to {} refused: rate limit", EmailAddresses.mask(email));
+            log.info("Sign-in code to {} refused: rate limit", logId(email));
             return new SendOutcome.RateLimited();
         }
         String code;
         try {
             code = codes.issue(httpSessionId, email);
         } catch (DataAccessException e) {
-            log.warn("Sign-in code to {} not stored: {}", EmailAddresses.mask(email), e.getClass().getName());
+            log.warn("Sign-in code to {} not stored: {}", logId(email), e.getClass().getName());
             return new SendOutcome.SendFailed();
         }
         if (!mailer.send(email, code)) {
             discardQuietly(httpSessionId, email);
             return new SendOutcome.SendFailed();
         }
-        log.info("Sign-in code sent to {}", EmailAddresses.mask(email));
+        log.info("Sign-in code sent to {}", logId(email));
         return new SendOutcome.Sent(email);
     }
 
@@ -119,12 +119,12 @@ public class EmailSignInService {
         }
         return switch (result) {
             case EmailCodeStore.Result.Accepted _ -> {
-                log.info("Signed in with an email code: {}", EmailAddresses.mask(email));
+                log.info("Signed in with an email code: {}", logId(email));
                 yield new VerifyOutcome.SignedIn(email);
             }
             case EmailCodeStore.Result.Wrong wrong -> new VerifyOutcome.WrongCode(wrong.attemptsLeft());
             case EmailCodeStore.Result.TooManyAttempts _ -> {
-                log.info("Sign-in code for {} invalidated after too many wrong entries", EmailAddresses.mask(email));
+                log.info("Sign-in code for {} invalidated after too many wrong entries", logId(email));
                 yield new VerifyOutcome.TooManyAttempts();
             }
             case EmailCodeStore.Result.NoCode _ -> new VerifyOutcome.NoCode();
@@ -152,6 +152,11 @@ public class EmailSignInService {
                         limits.verifiesPerSessionPer15Min(), FIFTEEN_MINUTES)
                 && rateLimiter.tryAcquire("code-ip:" + hasher.hash("ip", client.ip()),
                         limits.verifiesPerIpPer15Min(), FIFTEEN_MINUTES);
+    }
+
+    /** Logs name an address only by its peppered tag, never the address or a part of it. */
+    private String logId(String email) {
+        return EmailAddresses.logId(hasher, email);
     }
 
     private void discardQuietly(String httpSessionId, String email) {
