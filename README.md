@@ -298,7 +298,8 @@ For other hosts (Oracle Cloud Always Free, a cheap EU VPS with Caddy, university
   - CodeQL
 - Branches are named `feature/…`, `bugfix/…` or `hotfix/…`.
 - PRs are squash-merged, with `gh pr merge <n> --auto --squash` or `python scripts/merge_pr.py <n>`. The script updates a branch that's behind, waits for the checks, then merges.
-- Dependabot runs on Mondays. Its grouped Maven minor/patch PR merges itself once the checks pass.
+- Dependabot runs on Mondays. Its PRs (version and security updates) don't merge themselves: the owner reviews the
+  release notes of the bumped packages and merges them with `scripts/merge_pr.py`, like any other PR.
 
 Details in [CONTRIBUTING.md](CONTRIBUTING.md).
 
