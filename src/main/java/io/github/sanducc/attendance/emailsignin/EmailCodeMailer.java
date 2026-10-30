@@ -1,6 +1,7 @@
 package io.github.sanducc.attendance.emailsignin;
 
 import io.github.sanducc.attendance.common.EmailAddresses;
+import io.github.sanducc.attendance.common.PepperedHasher;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.time.Duration;
@@ -23,8 +24,8 @@ import org.springframework.mail.javamail.MimeMessageHelper;
  *
  * <p>The SMTP conversation runs on a virtual thread and the request waits at most {@code send-timeout} for it, so a
  * slow mail server can't hang the page (the socket timeouts in {@code spring.mail.properties} bound it too).
- * Logs carry a masked address ({@code a***@x.ro}) and the exception type, never the code, the address or the
- * exception message (SMTP errors quote the recipient).
+ * Logs carry the address's peppered tag ({@link EmailAddresses#logId}, {@code email#3fa9c2d1b0aa}) and the exception
+ * type, never the code, the address (or part of it) or the exception message (SMTP errors quote the recipient).
  */
 public class EmailCodeMailer implements DisposableBean {
 
@@ -34,11 +35,13 @@ public class EmailCodeMailer implements DisposableBean {
 
     private final JavaMailSender mailSender;
     private final EmailSignInProperties properties;
+    private final PepperedHasher hasher;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public EmailCodeMailer(JavaMailSender mailSender, EmailSignInProperties properties) {
+    public EmailCodeMailer(JavaMailSender mailSender, EmailSignInProperties properties, PepperedHasher hasher) {
         this.mailSender = mailSender;
         this.properties = properties;
+        this.hasher = hasher;
     }
 
     /** Sends {@code code} to {@code email}; false if the mail couldn't be handed to the SMTP server in time. */
@@ -52,11 +55,12 @@ public class EmailCodeMailer implements DisposableBean {
             return true;
         } catch (TimeoutException e) {
             sending.cancel(true);
-            log.warn("Sign-in code to {} not sent: SMTP server didn't answer within {}", EmailAddresses.mask(email),
-                    properties.sendTimeout());
+            log.warn("Sign-in code to {} not sent: SMTP server didn't answer within {}",
+                    EmailAddresses.logId(hasher, email), properties.sendTimeout());
             return false;
         } catch (ExecutionException e) {
-            log.warn("Sign-in code to {} not sent: {}", EmailAddresses.mask(email), e.getCause().getClass().getName());
+            log.warn("Sign-in code to {} not sent: {}", EmailAddresses.logId(hasher, email),
+                    e.getCause().getClass().getName());
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

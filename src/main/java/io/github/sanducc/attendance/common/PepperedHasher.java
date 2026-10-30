@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class PepperedHasher {
 
+    public static final int LOG_ID_LENGTH = 12;
+
     private final byte[] pepper;
 
     public PepperedHasher(AttendanceProperties properties) {
@@ -20,6 +22,15 @@ public class PepperedHasher {
 
     public String hash(String purpose, String value) {
         return HexFormat.of().formatHex(Hmac.sha256(pepper, purpose + ":" + value));
+    }
+
+    /**
+     * A short tag that lets log lines about the same {@code value} be told apart and correlated without the value
+     * itself: the first {@value #LOG_ID_LENGTH} hex characters of a keyed hash, so it can't be reversed or
+     * looked up without the pepper.
+     */
+    public String logId(String purpose, String value) {
+        return hash("log:" + purpose, value).substring(0, LOG_ID_LENGTH);
     }
 
     public byte[] sign(String purpose, String value) {

@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -32,6 +35,22 @@ class SessionStoreUnavailableFilterTest {
         assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");
         assertThat(response.getContentType()).startsWith("text/html");
         assertThat(response.getContentAsString()).contains("Temporarily unavailable").doesNotContain("half a page");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void theLoggedPathCannotForgeALogLine(CapturedOutput output) throws Exception {
+        FilterChain chain = (req, res) -> {
+            throw new SessionStoreUnavailableException("HTTP session store (Redis) unavailable",
+                    new RedisConnectionFailureException("Unable to connect to Redis"));
+        };
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/a/x\r\nINFO Fake entry");
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+        assertThat(output.getAll())
+                .contains("GET /a/x__INFO Fake entry failed: HTTP session store (Redis) unavailable")
+                .doesNotContain("/a/x\r\n").doesNotContain("/a/x\n");
     }
 
     @Test
